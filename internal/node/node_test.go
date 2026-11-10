@@ -137,11 +137,17 @@ func TestGatewayScanPushesCatalog(t *testing.T) {
 		t.Fatal("self missing")
 	}
 	st := local.Services["exec"]
-	if st.Offered {
-		t.Fatal("exec should not be offered without an NVIDIA GPU")
-	}
-	if st.Reason == "" {
-		t.Fatal("disabled exec should include a reason")
+	if a.Caps.NVIDIA {
+		if !st.Offered || !st.Enabled {
+			t.Fatalf("exec should be offered when an NVIDIA GPU is present: %+v", st)
+		}
+	} else {
+		if st.Offered {
+			t.Fatal("exec should not be offered without an NVIDIA GPU")
+		}
+		if st.Reason == "" {
+			t.Fatal("unavailable exec should include a reason")
+		}
 	}
 
 	cli := control.NewClient(a.APIAddr())
