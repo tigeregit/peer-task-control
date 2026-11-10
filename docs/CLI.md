@@ -172,6 +172,17 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 
 Docker 演示里除了 `gateway` / `worker-a` / `worker-b` 三个容器，还可以在 Windows 本机启动原生 `host` 节点（真实 NVIDIA GPU）：先保证网格已 `up`，再在仓库根目录运行 `powershell -File docker/run-host-node.ps1`。网关通过 `scan_hosts: host.docker.internal` 探测本机 `18765` 端口。停止用 `powershell -File docker/run-host-node.ps1 -Stop`。
 
+可选的 Ubuntu CUDA 执行节点不要写进默认 live compose。在已有 NVIDIA Container Toolkit / Docker Desktop GPU 直通的机器上，用叠加文件启动官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04` 节点（名为 `cuda`，exec+files，无中继，GPU 以容器内 `nvidia-smi` 为准）：
+
+```text
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml stop cuda
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml rm -f cuda
+```
+
+先确认 `docker run --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` 能看到真实 GPU。本仓库在驱动 616.56 上试过同样已发布的 `13.5.0-devel-ubuntu22.04`，被 `nvidia-container-cli` 以 `cuda>=13.5` 拒绝，因此叠加层使用 12.9.2。示例作业：`ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda`。
+
+
 ```text
 ptc webui
 ptc webui --listen 127.0.0.1:18790 --api 127.0.0.1:18780
