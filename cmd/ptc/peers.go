@@ -11,6 +11,7 @@ import (
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/config"
 	"github.com/peer-task-control/ptc/internal/control"
+	"github.com/peer-task-control/ptc/internal/disk"
 	"github.com/peer-task-control/ptc/internal/query"
 )
 
@@ -114,6 +115,9 @@ func peersShow(id string, jsonOut bool) error {
 	fmt.Printf("exec    %s\n", svcCell(entry, "exec"))
 	fmt.Printf("files   %s\n", svcCell(entry, "files"))
 	fmt.Printf("relay   %s\n", svcCell(entry, "relay"))
+	if entry.Disk != nil {
+		printDisk(entry.Disk)
+	}
 	fmt.Printf("\nTASKS (%d)\n", len(runs))
 	if len(runs) == 0 {
 		fmt.Println("(none)")
@@ -208,4 +212,16 @@ func shortID(id string) string {
 		return id[:16] + "…"
 	}
 	return id
+}
+
+func printDisk(u *disk.Usage) {
+	if u == nil {
+		return
+	}
+	fmt.Printf("ptc     seeds %s  worktrees %s  outputs %s  records %s\n",
+		humanSize(u.SeedsBytes), humanSize(u.WorktreesBytes), humanSize(u.OutputsBytes), humanSize(u.RecordsBytes))
+	for _, v := range u.Volumes {
+		fmt.Printf("disk    %s (%s)  %s free / %s total  (%s used)\n",
+			v.Path, v.Role, humanSize(v.Free), humanSize(v.Total), humanSize(v.Used))
+	}
 }

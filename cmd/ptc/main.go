@@ -12,9 +12,12 @@ import (
 )
 
 var (
-	cfgPath string
-	dataDir string
-	apiAddr string
+	cfgPath      string
+	dataDir      string
+	apiAddr      string
+	seedsDir     string
+	worktreesDir string
+	runsDir      string
 )
 
 func main() {
@@ -33,9 +36,12 @@ func rootCmd() *cobra.Command {
 	}
 	defaultCfg := filepath.Join(config.DefaultDataDir(), "config.yaml")
 	cmd.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to config.yaml")
-	cmd.PersistentFlags().StringVar(&dataDir, "data-dir", "", "override data directory")
+	cmd.PersistentFlags().StringVar(&dataDir, "data-dir", "", "override data directory (PTC_DATA_DIR)")
+	cmd.PersistentFlags().StringVar(&seedsDir, "seeds-dir", "", "override CAS + packages directory (PTC_SEEDS_DIR)")
+	cmd.PersistentFlags().StringVar(&worktreesDir, "worktrees-dir", "", "override worktree root (PTC_WORKTREES_DIR)")
+	cmd.PersistentFlags().StringVar(&runsDir, "runs-dir", "", "override run records directory (PTC_RUNS_DIR)")
 	cmd.PersistentFlags().StringVar(&apiAddr, "api", "", "local daemon API host:port (default: read daemon.lock)")
-	cmd.AddCommand(daemonCmd(), peersCmd(), policyCmd(), skillCmd(), webuiCmd(), submitCmd(), resourcesCmd(), tasksCmd(), versionCmd())
+	cmd.AddCommand(daemonCmd(), peersCmd(), policyCmd(), skillCmd(), webuiCmd(), submitCmd(), resourcesCmd(), tasksCmd(), queueCmd(), cancelStandaloneCmd(), cleanCmd(), versionCmd())
 	return cmd
 }
 
@@ -57,8 +63,12 @@ func loadConfigOrDefault() (*config.Config, error) {
 		}
 		return nil, fmt.Errorf("config not found at %s (copy config.example.yaml and fill trusted_cidrs)", cfgPath)
 	}
-	if dataDir != "" {
-		cfg.DataDir = dataDir
-	}
+	applyPathFlags(cfg)
 	return cfg, nil
+}
+
+func cancelStandaloneCmd() *cobra.Command {
+	cmd := cancelCmd()
+	cmd.Use = "cancel RUN-ID"
+	return cmd
 }
