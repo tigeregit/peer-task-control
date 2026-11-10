@@ -8,7 +8,7 @@ jobs:
         with:
           file: prepare.yaml
       - name: Run tests
-        run: bash bin/app.sh
+        run: sh bin/app.sh
       - name: Package result
         uses: ptc/package-result@v0
         with:
