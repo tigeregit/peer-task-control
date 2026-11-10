@@ -1,0 +1,70 @@
+# ptc Package result 完整配置模板（full settings）
+# 被 workflow 中最后一个步骤 Package result 的 with.file 指向。
+# 解析本文件应得到：要收集的路径、包装与发布方式、摘要与清理策略。
+# 复制后按实际任务改值。被注释的键是可选的，需要时取消注释。
+#
+# schema: ptc/v0    对应 uses: ptc/package-result@v0
+
+apiVersion: ptc/v0
+kind: PackageResult
+
+metadata:
+  name: scene-a-cuda-test-results
+  description: "把 out/ 中的结果和日志打成内容寻址种子，写入摘要，并回收临时工作树。"
+
+# 1) 从工作树收集哪些路径（均相对工作树根目录，且应落在 Prepare 的 layout 内）。
+collect:
+  # 若为 true，先纳入 prepare.yaml 里 outputs 列出的路径，再与下面的条目合并（同 path 以这里为准）。
+  from_prepare_outputs: true
+  items:
+    - name: results
+      path: out/results
+      required: true
+      summary: true
+    - name: logs
+      path: out/logs
+      required: false
+      summary: false
+  # exclude:
+  #   - out/results/.cache
+
+# 2) 包装方式。默认做成内容寻址目录树，保留相对结构，便于之后当 Prepare 种子再用。
+package:
+  # unixfs：与 P1 的 CAS / filestore 一致。需要单一归档时再改 tar 或 zip。
+  format: unixfs
+  preserve_layout: true
+  # compression: zstd
+  # 整包上限，超限则本步骤失败，且不得进入 cleanup 删除未发布结果。
+  # max_bytes: 20GiB
+
+# 3) 发布为可获取种子。结果默认是临时数据；要长期留存必须显式 pin，并优先放到 files 节点。
+publish:
+  class: temporary
+  pin: false
+  to:
+    any_replica: true
+    prefer: [files]
+  seed:
+    name: scene-a-results
+    # digest / cid 在包装完成后由运行时写入，提交时不必填。
+    # digest: sha256:...
+    # cid: bafy...
+
+# 4) 任务摘要：供 WebUI 展示运行结果（类似 GitHub Actions 的 job summary）。
+summary:
+  include_exit_code: true
+  # 下列文件若存在，纳入摘要正文或附件。
+  files:
+    - path: out/results/summary.md
+      required: false
+    - path: out/results/metrics.json
+      required: false
+  # annotations_from: out/results/annotations.yaml
+
+# 5) 包装并发布成功后的清理，避免临时输出占满 exec 节点磁盘。
+cleanup:
+  # success：仅成功发布后清理；always：即使包装失败也按策略删未声明数据（仍不得删未发布成功的结果）。
+  when: success
+  evict_worktree: true
+  evict_unpackaged: true
+  # 与 Prepare 的 layout.keep_on_success / keep_on_failure 同时生效时，以本段为准。

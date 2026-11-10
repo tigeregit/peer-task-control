@@ -1,0 +1,21 @@
+# ptc 任务大纲示例（借鉴 Actions 的 job/step，而不是 GitHub 托管 CI）
+# 尚未被 ptc submit 执行。
+# 每个 job 必须以 Prepare 开头、以 Package result 收尾，这两步都只指向各自的 YAML。
+
+name: scene-a-cuda-test
+
+jobs:
+  test:
+    steps:
+      - name: Prepare
+        uses: ptc/prepare@v0
+        with:
+          file: prepare.yaml
+
+      - name: Run tests
+        run: .\bin\app.exe --data in\scene --out out\results
+
+      - name: Package result
+        uses: ptc/package-result@v0
+        with:
+          file: package-result.yaml

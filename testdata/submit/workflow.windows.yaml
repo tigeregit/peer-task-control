@@ -1,0 +1,15 @@
+name: sample-local-job
+
+jobs:
+  test:
+    steps:
+      - name: Prepare
+        uses: ptc/prepare@v0
+        with:
+          file: prepare.yaml
+      - name: Run tests
+        run: .\bin\app.ps1
+      - name: Package result
+        uses: ptc/package-result@v0
+        with:
+          file: package-result.yaml

@@ -1,0 +1,526 @@
+package run
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/peer-task-control/ptc/internal/caps"
+	"github.com/peer-task-control/ptc/internal/cas"
+	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/peer-task-control/ptc/internal/workflow"
+)
+
+type Options struct {
+	DataDir string
+	// Force skips the NVIDIA / exec host check (tests and explicit override).
+	Force bool
+	// KeepWorktree leaves the worktree even if cleanup would remove it.
+	KeepWorktree bool
+	Stdout       io.Writer
+	// Now is optional; tests may override.
+	Now func() time.Time
+	// Detect is optional; defaults to caps.Detect.
+	Detect func() caps.Info
+}
+
+type Result struct {
+	ID         string
+	Status     string
+	Worktree   string
+	PackageDir string
+	Digest     string
+	Task       taskboard.Task
+	TaskPath   string
+}
+
+func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
+	if opt.Stdout == nil {
+		opt.Stdout = io.Discard
+	}
+	if opt.Now == nil {
+		opt.Now = time.Now
+	}
+	if opt.Detect == nil {
+		opt.Detect = caps.Detect
+	}
+	start := opt.Now()
+	id := start.UTC().Format("20060102T150405Z")
+	host, _ := os.Hostname()
+	if !opt.Force {
+		if err := checkTarget(loaded.Prepare.Target, opt.Detect()); err != nil {
+			return Result{}, err
+		}
+	}
+
+	workRoot := loaded.Prepare.Layout.Root
+	if workRoot == "" {
+		workRoot = filepath.Join(opt.DataDir, "worktrees", id+"-"+loaded.JobName)
+	}
+	pkgDir := filepath.Join(opt.DataDir, "packages", id+"-"+loaded.JobName)
+	runsDir := filepath.Join(opt.DataDir, "runs")
+	store := cas.New(filepath.Join(opt.DataDir, "cas"))
+
+	res := Result{ID: id, Worktree: workRoot, PackageDir: pkgDir}
+	job := taskboard.Job{ID: loaded.JobName, Name: taskboard.Text{ZH: loaded.JobName, EN: loaded.JobName}, StartedAt: taskboard.PtrTime(start)}
+	var recSteps []taskboard.Step
+
+	prepStep, seeds, err := runPrepare(loaded, workRoot, store, start, opt)
+	recSteps = append(recSteps, prepStep)
+	if err != nil {
+		job.Status = "failure"
+		job.Steps = recSteps
+		job.EndedAt = taskboard.PtrTime(opt.Now())
+		res.Status = "failure"
+		res.Task = finishTask(loaded, host, start, opt.Now(), res.Status, "prepare failed: "+err.Error(), "", job, snapshotWorktree(loaded, workRoot, seeds))
+		res.TaskPath, _ = writeTask(runsDir, res.Task)
+		return res, err
+	}
+
+	runFailed := error(nil)
+	for _, st := range loaded.RunSteps {
+		s, err := runCommand(loaded, workRoot, st, opt)
+		recSteps = append(recSteps, s)
+		if err != nil {
+			runFailed = err
+			break
+		}
+	}
+
+	pkgStep, digest, pkgErr := runPackage(loaded, workRoot, pkgDir, store, runFailed == nil, opt)
+	recSteps = append(recSteps, pkgStep)
+	res.Digest = digest
+
+	end := opt.Now()
+	job.Steps = recSteps
+	job.EndedAt = taskboard.PtrTime(end)
+	switch {
+	case runFailed != nil:
+		job.Status = "failure"
+		res.Status = "failure"
+	case pkgErr != nil:
+		job.Status = "failure"
+		res.Status = "failure"
+	default:
+		job.Status = "success"
+		res.Status = "success"
+	}
+	summary := fmt.Sprintf("job %s %s", loaded.JobName, res.Status)
+	if digest != "" {
+		summary += "; result seed " + digest
+	}
+	if runFailed != nil {
+		summary = "run failed: " + runFailed.Error()
+	} else if pkgErr != nil {
+		summary = "package failed: " + pkgErr.Error()
+	}
+	res.Task = finishTask(loaded, host, start, end, res.Status, summary, digest, job, snapshotWorktree(loaded, workRoot, seeds))
+	var werr error
+	res.TaskPath, werr = writeTask(runsDir, res.Task)
+	if res.Status == "success" {
+		return res, werr
+	}
+	if runFailed != nil {
+		return res, runFailed
+	}
+	if pkgErr != nil {
+		return res, pkgErr
+	}
+	return res, werr
+}
+
+func checkTarget(t workflow.Target, info caps.Info) error {
+	if t.RequiresNVIDIA() && !info.NVIDIA {
+		return fmt.Errorf("this machine has no NVIDIA GPU; CUDA jobs cannot run here (use a node with exec, or pass --force only for non-CUDA checks)")
+	}
+	if t.DeniesNonExec() && t.RequiresNVIDIA() && !info.NVIDIA {
+		return fmt.Errorf("target.deny_non_exec: refusing to run on a non-exec host")
+	}
+	return nil
+}
+
+func runPrepare(loaded workflow.Loaded, workRoot string, store *cas.Store, start time.Time, opt Options) (taskboard.Step, []taskboard.WorktreeSeed, error) {
+	st := taskboard.Step{ID: "prepare", Name: taskboard.Text{ZH: "准备工作树", EN: "Prepare worktree"}, StartedAt: taskboard.PtrTime(start)}
+	var seeds []taskboard.WorktreeSeed
+	var log bytes.Buffer
+	fmt.Fprintf(&log, "worktree %s\n", workRoot)
+	if err := os.MkdirAll(workRoot, 0o755); err != nil {
+		st.Status, st.Log, st.EndedAt = "failure", log.String()+"\n"+err.Error(), taskboard.PtrTime(opt.Now())
+		return st, seeds, err
+	}
+	for _, d := range loaded.Prepare.Layout.Directories {
+		p := filepath.Join(workRoot, filepath.FromSlash(d.Path))
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			st.Status, st.Log, st.EndedAt = "failure", log.String()+"\n"+err.Error(), taskboard.PtrTime(opt.Now())
+			return st, seeds, err
+		}
+		fmt.Fprintf(&log, "dir %s writable=%v\n", d.Path, d.IsWritable())
+	}
+	for _, seed := range loaded.Prepare.Seeds {
+		dest := filepath.Join(workRoot, filepath.FromSlash(seed.Dest))
+		ws := taskboard.WorktreeSeed{Name: seed.Name, Dest: seed.Dest, Class: seed.Class}
+		if err := materializeSeed(loaded.Dir, seed, dest, store, &log); err != nil {
+			seeds = append(seeds, ws)
+			if seed.IsRequired() {
+				st.Status, st.Log, st.EndedAt = "failure", log.String(), taskboard.PtrTime(opt.Now())
+				return st, seeds, fmt.Errorf("seed %s: %w", seed.Name, err)
+			}
+			fmt.Fprintf(&log, "optional seed %s skipped: %v\n", seed.Name, err)
+			continue
+		}
+		if pub, err := resource.PublishTree(opt.DataDir, seed.Name, dest, start); err != nil {
+			fmt.Fprintf(&log, "seed %s publish warning: %v\n", seed.Name, err)
+		} else {
+			ws.Digest = pub.Digest
+			ws.Size = pub.Size
+			ws.Files = pub.FileCount
+			fmt.Fprintf(&log, "seed %s published %s (%d files, %d bytes)\n", seed.Name, pub.Digest, ws.Files, pub.Size)
+		}
+		seeds = append(seeds, ws)
+	}
+	st.Status, st.Log, st.EndedAt = "success", log.String(), taskboard.PtrTime(opt.Now())
+	fmt.Fprint(opt.Stdout, st.Log)
+	return st, seeds, nil
+}
+
+func materializeSeed(base string, seed workflow.Seed, dest string, store *cas.Store, log *bytes.Buffer) error {
+	switch {
+	case seed.Local != nil && seed.Local.Src != "":
+		src := seed.Local.Src
+		if !filepath.IsAbs(src) {
+			src = filepath.Join(base, src)
+		}
+		if err := cas.CopyTree(src, dest); err != nil {
+			return err
+		}
+		info, err := os.Stat(src)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			sum, err := store.PutFile(src)
+			if err == nil {
+				fmt.Fprintf(log, "seed %s local %s -> %s (%s)\n", seed.Name, src, dest, sum)
+				if seed.Digest != "" && seed.Digest != sum {
+					return fmt.Errorf("local file digest %s does not match declared %s", sum, seed.Digest)
+				}
+				return nil
+			}
+		}
+		fmt.Fprintf(log, "seed %s local %s -> %s\n", seed.Name, src, dest)
+		return nil
+	case seed.Digest != "":
+		if err := store.Materialize(seed.Digest, dest); err != nil {
+			return err
+		}
+		fmt.Fprintf(log, "seed %s cas %s -> %s\n", seed.Name, seed.Digest, dest)
+		return nil
+	case seed.CID != "" || (seed.Source != nil && seed.Source.Dataset != ""):
+		return fmt.Errorf("mesh fetch of cid/source seeds is not implemented yet; provide seeds.local or a sha256 blob already in the local CAS")
+	default:
+		return fmt.Errorf("no retrieval method")
+	}
+}
+
+func runCommand(loaded workflow.Loaded, workRoot string, step workflow.Step, opt Options) (taskboard.Step, error) {
+	start := opt.Now()
+	name := step.Name
+	if name == "" {
+		name = "run"
+	}
+	st := taskboard.Step{ID: step.ID, Name: taskboard.Text{EN: name, ZH: name}, StartedAt: taskboard.PtrTime(start)}
+	if strings.TrimSpace(step.Run) == "" {
+		st.Status, st.Log, st.EndedAt = "failure", "step has no run command", taskboard.PtrTime(opt.Now())
+		return st, fmt.Errorf("step %q has no run command", name)
+	}
+	cwd := workRoot
+	if wd := loaded.Prepare.Workspace.WorkingDirectory; wd != "" && wd != "." {
+		cwd = filepath.Join(workRoot, filepath.FromSlash(wd))
+	}
+	timeout := 2 * time.Hour
+	if loaded.Prepare.Workspace.Timeout != "" {
+		if d, err := time.ParseDuration(loaded.Prepare.Workspace.Timeout); err == nil {
+			timeout = d
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd, err := shellCommand(ctx, loaded.Prepare.Workspace.Shell, step.Run)
+	if err != nil {
+		st.Status, st.Log, st.EndedAt = "failure", err.Error(), taskboard.PtrTime(opt.Now())
+		return st, err
+	}
+	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), envPairs(loaded, workRoot)...)
+	var buf bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&buf, opt.Stdout)
+	cmd.Stderr = io.MultiWriter(&buf, opt.Stdout)
+	err = cmd.Run()
+	st.Log = buf.String()
+	st.EndedAt = taskboard.PtrTime(opt.Now())
+	if err != nil {
+		st.Status = "failure"
+		return st, fmt.Errorf("%s: %w", name, err)
+	}
+	st.Status = "success"
+	return st, nil
+}
+
+func shellCommand(ctx context.Context, shell, script string) (*exec.Cmd, error) {
+	if shell == "" {
+		if runtime.GOOS == "windows" {
+			shell = "powershell"
+		} else {
+			shell = "bash"
+		}
+	}
+	switch strings.ToLower(shell) {
+	case "bash", "sh":
+		bin, err := lookupUnixShell(shell)
+		if err != nil {
+			return nil, err
+		}
+		return exec.CommandContext(ctx, bin, "-lc", script), nil
+	case "pwsh", "powershell":
+		bin, err := lookupPowerShell(shell)
+		if err != nil {
+			return nil, err
+		}
+		return exec.CommandContext(ctx, bin, "-NoProfile", "-Command", script), nil
+	case "cmd":
+		return exec.CommandContext(ctx, "cmd", "/C", script), nil
+	default:
+		return nil, fmt.Errorf("unsupported shell %q", shell)
+	}
+}
+
+func lookupPowerShell(want string) (string, error) {
+	if want == "powershell" {
+		if bin, err := exec.LookPath("powershell"); err == nil {
+			return bin, nil
+		}
+		if bin, err := exec.LookPath("pwsh"); err == nil {
+			return bin, nil
+		}
+	} else {
+		if bin, err := exec.LookPath("pwsh"); err == nil {
+			return bin, nil
+		}
+		if bin, err := exec.LookPath("powershell"); err == nil {
+			return bin, nil
+		}
+	}
+	return "", fmt.Errorf("no usable PowerShell found (looked for pwsh and powershell)")
+}
+
+func lookupUnixShell(want string) (string, error) {
+	candidates := []string{want}
+	if want == "bash" {
+		candidates = append(candidates, "sh")
+	}
+	var found []string
+	for _, name := range candidates {
+		if bin, err := exec.LookPath(name); err == nil {
+			found = append(found, bin)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		found = append(found,
+			`C:\Program Files\Gitinash.exe`,
+			`C:\Program Files (x86)\Gitinash.exe`,
+			filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "Git", "bin", "bash.exe"),
+		)
+	}
+	for _, bin := range found {
+		if usableUnixShell(bin) {
+			return bin, nil
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return "", fmt.Errorf("workspace.shell is %s, but no usable bash was found; Windows System32 bash is the WSL stub and is skipped. Install Git Bash or set workspace.shell to powershell or cmd", want)
+	}
+	return "", fmt.Errorf("no usable %s in PATH", want)
+}
+
+func usableUnixShell(bin string) bool {
+	if bin == "" {
+		return false
+	}
+	if _, err := os.Stat(bin); err != nil {
+		return false
+	}
+	if runtime.GOOS != "windows" {
+		return true
+	}
+	norm := strings.ToLower(filepath.ToSlash(filepath.Clean(bin)))
+	// WSL stubs: System32 bash.exe and the Microsoft Store WindowsApps shim.
+	for _, bad := range []string{"/windows/system32/", "/windows/syswow64/", "/windows/sysnative/", "/windowsapps/"} {
+		if strings.Contains(norm, bad) {
+			return false
+		}
+	}
+	return true
+}
+
+func envPairs(loaded workflow.Loaded, workRoot string) []string {
+	in := filepath.Join(workRoot, "in")
+	out := filepath.Join(workRoot, "out")
+	tmp := filepath.Join(workRoot, "tmp")
+	pairs := []string{
+		"PTC_WORKTREE=" + workRoot,
+		"PTC_IN=" + in,
+		"PTC_OUT=" + out,
+		"PTC_TMP=" + tmp,
+		"PTC_JOB=" + loaded.JobName,
+	}
+	if ep := loaded.Prepare.Workspace.Entrypoint; ep != "" {
+		pairs = append(pairs, "PTC_ENTRYPOINT="+filepath.Join(workRoot, filepath.FromSlash(ep)))
+	}
+	for k, v := range loaded.Prepare.Workspace.Env {
+		pairs = append(pairs, k+"="+v)
+	}
+	return pairs
+}
+
+func runPackage(loaded workflow.Loaded, workRoot, pkgDir string, store *cas.Store, runOK bool, opt Options) (taskboard.Step, string, error) {
+	start := opt.Now()
+	st := taskboard.Step{ID: "package-result", Name: taskboard.Text{ZH: "打包结果", EN: "Package result"}, StartedAt: taskboard.PtrTime(start)}
+	var log bytes.Buffer
+	items := workflow.CollectItems(loaded.Package, loaded.Prepare)
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		st.Status, st.Log, st.EndedAt = "failure", err.Error(), taskboard.PtrTime(opt.Now())
+		return st, "", err
+	}
+	var missing []string
+	for _, it := range items {
+		src := filepath.Join(workRoot, filepath.FromSlash(it.Path))
+		dst := filepath.Join(pkgDir, filepath.FromSlash(it.Path))
+		if _, err := os.Stat(src); err != nil {
+			msg := fmt.Sprintf("missing %s (%s)", it.Path, err)
+			fmt.Fprintln(&log, msg)
+			if it.Required && runOK {
+				missing = append(missing, it.Path)
+			}
+			continue
+		}
+		if err := cas.CopyTree(src, dst); err != nil {
+			st.Status, st.Log, st.EndedAt = "failure", log.String()+"\n"+err.Error(), taskboard.PtrTime(opt.Now())
+			return st, "", err
+		}
+		fmt.Fprintf(&log, "collect %s -> %s\n", it.Path, dst)
+	}
+	if len(missing) > 0 {
+		err := fmt.Errorf("required collect paths missing: %s", strings.Join(missing, ", "))
+		st.Status, st.Log, st.EndedAt = "failure", log.String(), taskboard.PtrTime(opt.Now())
+		return st, "", err
+	}
+	seedName := ""
+	if loaded.Package.Publish.Seed != nil {
+		seedName = loaded.Package.Publish.Seed.Name
+	}
+	runOKVal := runOK
+	pub, err := resource.CommitTree(pkgDir, seedName, start, resource.CommitOpts{Format: loaded.Package.Package.Format, RunOK: &runOKVal})
+	if err != nil {
+		st.Status, st.Log, st.EndedAt = "failure", log.String()+"\n"+err.Error(), taskboard.PtrTime(opt.Now())
+		return st, "", err
+	}
+	digest := pub.Digest
+	fmt.Fprintf(&log, "result seed %s\n", digest)
+	if shouldCleanup(loaded, runOK) && !opt.KeepWorktree {
+		if err := os.RemoveAll(workRoot); err != nil {
+			fmt.Fprintf(&log, "cleanup warning: %v\n", err)
+		} else {
+			fmt.Fprintf(&log, "cleaned worktree %s\n", workRoot)
+		}
+	}
+	st.Status, st.Log, st.EndedAt = "success", log.String(), taskboard.PtrTime(opt.Now())
+	fmt.Fprint(opt.Stdout, st.Log)
+	return st, digest, nil
+}
+
+func shouldCleanup(loaded workflow.Loaded, runOK bool) bool {
+	c := loaded.Package.Cleanup
+	if !c.EvictWorktree {
+		if runOK {
+			return false
+		}
+		return false
+	}
+	switch c.When {
+	case "always":
+		return true
+	case "success":
+		return runOK
+	default:
+		return runOK
+	}
+}
+
+func snapshotWorktree(loaded workflow.Loaded, workRoot string, seeds []taskboard.WorktreeSeed) *taskboard.Worktree {
+	wt := &taskboard.Worktree{
+		Root:             workRoot,
+		WorkingDirectory: loaded.Prepare.Workspace.WorkingDirectory,
+		Entrypoint:       loaded.Prepare.Workspace.Entrypoint,
+		Seeds:            seeds,
+	}
+	for _, d := range loaded.Prepare.Layout.Directories {
+		wt.Directories = append(wt.Directories, taskboard.WorktreeDir{Path: d.Path, Class: d.Class, Writable: d.IsWritable()})
+	}
+	for _, o := range loaded.Prepare.Outputs {
+		wt.Outputs = append(wt.Outputs, taskboard.WorktreeOutput{Name: o.Name, Path: o.Path, Class: o.Class, Summary: o.Summary})
+	}
+	return wt
+}
+
+func finishTask(loaded workflow.Loaded, host string, start, end time.Time, status, summary, digest string, job taskboard.Job, wt *taskboard.Worktree) taskboard.Task {
+	name := loaded.Prepare.Metadata.Name
+	if name == "" {
+		name = loaded.Workflow.Name
+	}
+	if name == "" {
+		name = loaded.JobName
+	}
+	ann := []taskboard.Annotation{{
+		Level:   "notice",
+		Message: taskboard.Text{ZH: "本机执行（网格下发尚未实现）。", EN: "Ran locally; mesh dispatch is not implemented yet."},
+	}}
+	if digest != "" {
+		ann = append(ann, taskboard.Annotation{Level: "notice", Message: taskboard.Text{ZH: "结果种子 " + digest, EN: "Result seed " + digest}})
+	}
+	return taskboard.Task{
+		ID:          "run-" + job.StartedAt.UTC().Format("20060102T150405Z") + "-" + loaded.JobName,
+		Name:        taskboard.Text{ZH: name, EN: name},
+		Status:      status,
+		Event:       "workflow_dispatch",
+		Actor:       host,
+		Target:      host,
+		StartedAt:   taskboard.PtrTime(start),
+		EndedAt:     taskboard.PtrTime(end),
+		Summary:     taskboard.Text{ZH: summary, EN: summary},
+		Annotations: ann,
+		Jobs:        []taskboard.Job{job},
+		Source:      "local-submit",
+		Worktree:    wt,
+	}
+}
+
+func writeTask(dir string, t taskboard.Task) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, t.ID+".json")
+	b, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return path, os.WriteFile(path, b, 0o644)
+}

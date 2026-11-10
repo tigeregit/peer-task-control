@@ -1,0 +1,143 @@
+# ptc Prepare 完整配置模板（full settings）
+# 被 workflow 中 Prepare 步骤的 with.file 指向。
+# 解析本文件应得到：workspace 环境、目录结构、文件获取种子。
+# 复制后按实际任务改值。被注释的键是可选的，需要时取消注释。
+#
+# schema: ptc/v0    对应 uses: ptc/prepare@v0
+
+apiVersion: ptc/v0
+kind: Prepare
+
+metadata:
+  name: scene-a-cuda-test
+  description: "按种子搭好工作树环境与目录，再交给后续 run 步骤。"
+
+# 选择执行节点。CUDA 默认不能派到网关或没有 NVIDIA GPU 的机器。
+target:
+  services: [exec]
+  require_nvidia: true
+  # 默认 true：即使某台中转/文件节点上有完整数据副本，也不能在那台机器上跑 CUDA。
+  deny_non_exec: true
+
+  # 可选。钉到某一台节点；与下面的筛选条件同时生效。
+  # node:
+  #   name: worker-a
+  #   peer_id: 12D3KooW...
+
+  # 可选。按目录里的能力再筛一层。
+  # gpu:
+  #   name: "NVIDIA GeForce RTX 4090"
+  #   min_vram_mib: 16384
+  # network:
+  #   allow_cidrs: ["10.87.0.0/24"]
+
+  # 等待可调度节点的最长时间（仅准备阶段，不含后续 run）。
+  timeout: 30m
+
+# 1) workspace 环境：后续 run 步骤看到的工作目录、shell、环境变量。
+workspace:
+  # 相对工作树根目录。
+  working_directory: "."
+  # Windows 执行节点用 pwsh 或 cmd；Linux 用 bash。
+  shell: pwsh
+  entrypoint: bin/app.exe
+  env:
+    CUDA_VISIBLE_DEVICES: "0"
+    # 运行时还会注入 PTC_WORKTREE、PTC_IN、PTC_OUT、PTC_TMP，不必手写。
+  timeout: 2h
+  resources:
+    gpu_count: 1
+
+# 2) 目录结构：一次运行一棵工作树（类似 git worktree）。
+# 只读目录用来挂永久数据；out/ 与 tmp/ 可写。
+layout:
+  # 留空表示使用节点数据目录下的 worktrees/<run_id>。
+  root: ""
+  directories:
+    - path: in
+      class: permanent
+      writable: false
+    - path: in/sdk
+      class: permanent
+      writable: false
+    - path: in/scene
+      class: permanent
+      writable: false
+    - path: bin
+      class: temporary
+      writable: false
+    - path: out
+      class: temporary
+      writable: true
+    - path: out/results
+      class: temporary
+      writable: true
+    - path: out/logs
+      class: temporary
+      writable: true
+    - path: tmp
+      class: temporary
+      writable: true
+  # 成功后是否保留工作树。失败时默认保留，便于看日志。
+  keep_on_success: false
+  keep_on_failure: true
+
+# 3) 文件获取种子：用内容标识到网格里找副本，挂到 layout 中的 dest。
+# 本机已有则去重硬链接，不要整份再拷一份。
+# 每份永久数据在网格中至少有一个副本，但不保证当前执行节点已经有。
+seeds:
+  - name: third_party_sdk
+    class: permanent
+    dest: in/sdk
+    # 种子本体用一种即可；同时写时必须指向同一份内容。
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    # cid: bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi
+    # source:
+    #   dataset: third-party-sdk
+    #   revision: "2026-11"
+    # hardlink：优先（Windows 上对同一卷有效）；不行再 copy。
+    mode: hardlink
+    preserve_layout: true
+    required: true
+    from:
+      any_replica: true
+      # prefer: [files]
+
+  - name: scene-a
+    class: permanent
+    dest: in/scene
+    digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    mode: hardlink
+    preserve_layout: true
+    required: true
+    from:
+      any_replica: true
+
+  # 调试程序默认是临时种子。已发布、可共享的构建可改成 permanent，并改用 digest / cid。
+  - name: app
+    class: temporary
+    dest: bin/app.exe
+    entrypoint: true
+    required: true
+    # 提交端本地文件也可作为种子：先纳入网格（或仅本次传输），再落到 dest。
+    local:
+      src: ./build/app.exe
+    # digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+# 运行结束后收集到任务摘要里的路径（均相对工作树，且应出现在 layout 中）。
+outputs:
+  - name: results
+    path: out/results
+    class: temporary
+    summary: true
+  - name: logs
+    path: out/logs
+    class: temporary
+    summary: false
+
+# 数据生命周期。永久数据可 pin 在文件节点；临时数据必须可回收，以免占满磁盘。
+data:
+  pin_permanent: true
+  evict_temporary_after: 7d
+  # 单次运行临时数据（out/ + tmp/ + 临时种子）的上限，超限则 prepare 或 run 失败。
+  # max_temp_bytes: 20GiB

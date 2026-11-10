@@ -1,0 +1,15 @@
+name: fake-cuda-scene-a
+
+jobs:
+  test:
+    steps:
+      - name: Prepare
+        uses: ptc/prepare@v0
+        with:
+          file: prepare.yaml
+      - name: Run fake CUDA kernels
+        run: bash bin/fake_cuda.sh
+      - name: Package result
+        uses: ptc/package-result@v0
+        with:
+          file: package-result.yaml

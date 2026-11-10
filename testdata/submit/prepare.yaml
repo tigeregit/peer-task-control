@@ -1,0 +1,68 @@
+apiVersion: ptc/v0
+kind: Prepare
+metadata:
+  name: sample-local-job
+target:
+  services: [exec]
+  require_nvidia: false
+  deny_non_exec: false
+  timeout: 30s
+workspace:
+  working_directory: "."
+  entrypoint: bin/app.sh
+  env:
+    SAMPLE: "1"
+  timeout: 30s
+layout:
+  root: ""
+  directories:
+    - path: in
+      class: permanent
+      writable: false
+    - path: in/scene
+      class: permanent
+      writable: false
+    - path: bin
+      class: temporary
+      writable: false
+    - path: out
+      class: temporary
+      writable: true
+    - path: out/results
+      class: temporary
+      writable: true
+    - path: out/logs
+      class: temporary
+      writable: true
+    - path: tmp
+      class: temporary
+      writable: true
+  keep_on_success: false
+  keep_on_failure: true
+seeds:
+  - name: scene-a
+    class: permanent
+    dest: in/scene
+    local:
+      src: scene
+    mode: hardlink
+    preserve_layout: true
+    required: true
+  - name: app
+    class: temporary
+    dest: bin
+    required: true
+    local:
+      src: build
+outputs:
+  - name: results
+    path: out/results
+    class: temporary
+    summary: true
+  - name: logs
+    path: out/logs
+    class: temporary
+    summary: false
+data:
+  pin_permanent: true
+  evict_temporary_after: 7d
