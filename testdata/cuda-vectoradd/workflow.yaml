@@ -1,0 +1,26 @@
+name: cuda-vector-add
+
+jobs:
+  test:
+    steps:
+      - name: Prepare
+        uses: ptc/prepare@v0
+        with:
+          file: prepare.yaml
+      - name: Compile and run vector add
+        run: |
+          set -euo pipefail
+          mkdir -p out/results out/logs tmp
+          nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader | tee out/results/nvidia-smi.txt
+          nvcc -O2 -o tmp/vector_add src/vector_add.cu
+          tmp/vector_add | tee out/results/run.txt
+          {
+            echo "# CUDA vector add"
+            echo
+            echo "- GPU: $(cat out/results/nvidia-smi.txt)"
+            echo "- $(cat out/results/run.txt)"
+          } > out/results/summary.md
+      - name: Package result
+        uses: ptc/package-result@v0
+        with:
+          file: package-result.yaml

@@ -1,0 +1,55 @@
+apiVersion: ptc/v0
+kind: Prepare
+metadata:
+  name: cuda-vector-add
+target:
+  services: [exec]
+  require_nvidia: true
+  deny_non_exec: true
+  timeout: 10m
+workspace:
+  working_directory: "."
+  shell: bash
+  entrypoint: src/vector_add.cu
+  timeout: 10m
+layout:
+  directories:
+    - path: in
+      class: permanent
+      writable: false
+    - path: src
+      class: temporary
+      writable: false
+    - path: out
+      class: temporary
+      writable: true
+    - path: out/results
+      class: temporary
+      writable: true
+    - path: out/logs
+      class: temporary
+      writable: true
+    - path: tmp
+      class: temporary
+      writable: true
+  keep_on_success: false
+  keep_on_failure: true
+seeds:
+  - name: vector-add-src
+    class: temporary
+    dest: src
+    local:
+      src: .
+    required: true
+    entrypoint: true
+outputs:
+  - name: results
+    path: out/results
+    class: temporary
+    summary: true
+  - name: logs
+    path: out/logs
+    class: temporary
+data:
+  pin_permanent: false
+  evict_temporary_after: 7d
