@@ -12,3 +12,4 @@ policy:
   allow: []
   deny: []
 scan_interval: 5s
+disable_mdns: true

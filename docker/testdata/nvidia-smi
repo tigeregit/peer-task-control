@@ -1,0 +1,3 @@
+#!/bin/sh
+# Mock a compute node that has an NVIDIA GPU. Not installed on the gateway.
+echo "NVIDIA GeForce RTX 4090, 24564, 560.00"

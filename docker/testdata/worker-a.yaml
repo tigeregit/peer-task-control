@@ -1,4 +1,4 @@
-name: node-b
+name: worker-a
 listen: 0.0.0.0:18765
 api: 127.0.0.1:18780
 trusted_cidrs:
@@ -12,3 +12,4 @@ policy:
   allow: []
   deny: []
 scan_interval: 5s
+disable_mdns: true

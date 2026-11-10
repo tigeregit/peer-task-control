@@ -9,3 +9,6 @@ data/
 coverage.out
 .DS_Store
 Thumbs.db
+
+docker/ptc-linux
+docker/tcpprobe-linux

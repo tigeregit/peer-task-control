@@ -32,16 +32,29 @@ ptc skill print
 
 先起 daemon，再等目录出现。同网段靠 mDNS 和端口探测；跨网段由 `services.relay: true` 的网关扫描受信任网段并推送目录。不要向使用者要邻居地址。
 
-## 验证
+## 运行平台
+
+协议和 daemon **不绑定 Windows**。当前用 Go 编写，已在 Windows（iamsbb2）和 Linux 上编译、跑过单测。第一版产品优先服务 Windows 上的 CUDA 工作流，但 Linux 节点（包括用 Docker 模拟的网关和计算节点）可以同样入网。Windows 服务安装属于后续 P4。
+
+## 验证（按阶段）
+
+- **P0-A** 单元测试：策略、受信任 CIDR、目录合并、身份询问、网段扫描。
+- **P0-B** 同机多进程：`127.0.0.1/2/3` 上两台计算节点经一台网关互见。
+- **P0-C** Docker 跨网段：两个互不直通的网段，加上一台无 NVIDIA GPU、可访问两端的白名单网关。
 
 ```text
 go test ./...
-```
 
-跨网段（两段 + 一台网关）可用 Docker：
-
-```text
-docker compose -f docker/docker-compose.yml up --build --abort-on-container-exit
+# 在仓库根目录，预先编出 Linux 二进制后做跨网段模拟：
+# Windows（已装 Go 和 Docker）:
+powershell -File docker/p0-test.ps1
+# Linux:
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o docker/ptc-linux ./cmd/ptc
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o docker/tcpprobe-linux ./docker/cmd/tcpprobe
+docker compose -f docker/docker-compose.yml up -d --build
+sh docker/p0-test.sh
+python3 docker/p0-assert.py
+docker compose -f docker/docker-compose.yml down -v
 ```
 
 ## 命令（P0）
