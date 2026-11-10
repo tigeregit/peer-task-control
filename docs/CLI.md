@@ -91,6 +91,8 @@ ptc daemon --config config.yaml --data-dir D:\ptc-data
 ```text
 ptc peers
 ptc peers --json
+ptc peers show gateway
+ptc peers show 12D3KooW…
 ptc peers --data-dir D:\ptc-data
 ptc peers --api 127.0.0.1:18780
 ```
@@ -98,6 +100,8 @@ ptc peers --api 127.0.0.1:18780
 | 参数 | 默认 | 作用 |
 | --- | --- | --- |
 | `--json` | 关闭 | 向 stdout 打印缩进 JSON，而不是表格。 |
+
+`ptc peers show NAME|PEER` 查看一台设备的硬件信息（系统、GPU、显存、驱动、地址、服务）、该节点的历史任务，以及它存储的种子。与 WebUI 节点详情页使用同一套数据：`GET /api/v1/status`、`/api/v1/runs`、`/api/v1/resources`，再用与看板相同的节点过滤语义组合。`--json` 同样适用于 `show`。
 
 默认输出第一行是本机信息，随后是制表符分隔的表格：
 
@@ -152,6 +156,87 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 ```
 
 `services.*.enabled` 是该节点自己的功能开关；`offered` 是目录里实际对外宣称可提供（例如 `exec` 还要求本机检测与 NVIDIA GPU）。`caps` 中未探测到的字段可能为空或为零值。上面的示例值仅说明结构，运行时以实际输出为准。
+
+### `ptc webui`
+
+在本机打开只读任务看板，默认监听 `127.0.0.1:18790`。界面为中英双语（可切换），风格接近 agentboard：顶栏、统计卡片、任务列表。点击一条任务可查看类似 GitHub Actions 的运行摘要：状态、触发方式、耗时、作业与步骤、正在运行的步骤，以及日志摘要。
+
+看板会持续显示一条实时任务「网格目录监视 / Mesh catalog watch」，并汇总本机 `--tasks` / `--runs` 以及网格里其他节点公开的运行记录（守护进程 `GET /api/v1/runs` 会向邻居拉取 `/ptc/runs/1.0.0`）。任务和资源列表都支持搜索、状态/类型筛选和排序。顶栏还有「资源」分栏：列出全网种子的大小、所在节点数、创建时间，以及到当前设备（看板所连接的 daemon）的最短中转次数，并支持下载。列表可按列头升序或降序排序；digest 去掉 `sha256:` 前缀，默认只显示哈希前 8 位加 `***`，点眼睛按钮可展开。任务摘要里的结果种子可点进对应资源页。点击「节点」里的某一台设备，可查看硬件信息、历史任务和该节点存储的种子；再点具体任务或种子会跳到对应分栏。CLI 与看板共用同一套本机控制接口和查询语义（`internal/query`）。看板是只读界面：任务 / 资源 / 节点的查看、筛选、排序、搜索和种子下载都可以在 CLI 里用同样的参数完成（`ptc tasks`、`ptc resources`、`ptc peers` / `peers show`）。CLI 额外提供控制能力，看板不会代理这些写操作：`ptc daemon`、`ptc policy`（改白名单 / 黑名单 / 服务开关）、`ptc submit`（本机执行工作流），以及 `ptc resources show --list-files`（展开超过 100 个文件的目录树）。`ptc submit` 目前只在本机执行；网格下发尚未实现，因此看板里还不会出现由邻居跑完的 CUDA 作业。
+
+Docker 演示里除了 `gateway` / `worker-a` / `worker-b` 三个容器，还可以在 Windows 本机启动原生 `host` 节点（真实 NVIDIA GPU）：先保证网格已 `up`，再在仓库根目录运行 `powershell -File docker/run-host-node.ps1`。网关通过 `scan_hosts: host.docker.internal` 探测本机 `18765` 端口。停止用 `powershell -File docker/run-host-node.ps1 -Stop`。
+
+```text
+ptc webui
+ptc webui --listen 127.0.0.1:18790 --api 127.0.0.1:18780
+```
+
+| 参数 | 默认值 | 作用 |
+| --- | --- | --- |
+| `--listen` | `127.0.0.1:18790` | 看板监听地址。Docker 模拟里会改成 `0.0.0.0:18790`，并映射到主机的 `127.0.0.1:18790`。 |
+| `--tasks` | 空 | 可选的已记录任务 JSON（`{"tasks":[...]}`）。 |
+| `--report` | 空 | `--tasks` 的兼容别名。 |
+| `--runs` | 空 | 本机 `runs/*.json` 目录；网格记录仍由 daemon 的 `/api/v1/runs` 合并进来。 |
+
+相关接口：`GET /`、`GET /live/tasks`、`GET /live/status`、`GET /live/resources`、`GET /live/resources/sha256/{hex}`、`GET /live/resources/sha256/{hex}/content`、`GET /live/meta`。`GET /live/report` 会重定向到 `/live/tasks`。
+
+Docker 跨网段模拟会把该看板映射到主机的 `http://127.0.0.1:18790`。默认 compose 不会挂载录制的测试任务，也不会给容器节点伪装 GPU；节点硬件以 daemon 探测到的真实信息为准。需要跑官方 P0-C 角色断言时，另加 `-f docker/docker-compose.p0-test.yml`（不要和正在使用的看板叠在一起）。
+
+
+### `ptc resources`
+
+列出全网内容种子、查看某个种子，或把它下载下来。与 WebUI 资源分栏共用 `GET /api/v1/resources`（daemon 会向邻居拉取 `/ptc/resources/1.0.0`，并计算从当前节点到各副本的中转次数：直连为 0，经过一层电路中继为 1）。需要 daemon 已在运行。Prepare 步骤会把依赖种子登记为 `packages/seed-<name>` 树（优先硬链接，不另占一份完整拷贝），因此输入数据会和结果种子一起出现在清单里。
+
+不带子命令时等同于 `ptc resources` 列表。
+
+```text
+ptc resources
+ptc resources --json
+ptc resources --search pred.bin --kind tree --sort size --order desc
+ptc resources --node worker-a
+ptc resources show sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8
+ptc resources get sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8 -o result.tar
+```
+
+| 子命令 | 作用 |
+| --- | --- |
+| （默认） | 列出种子：digest、名称、类型、大小、所在节点数、创建时间、到当前设备的最短中转次数 |
+| `show DIGEST` | 详细信息：大小、副本、每台设备到当前节点的中转次数与路径（local / direct / relay）；tree 种子按目录为操作单位。超过 100 个文件时默认只打印文件数，需要具体路径时加 `--list-files`；不为每个小文件单独计算 digest |
+| `get DIGEST -o FILE` | 从最近的副本下载。tree 种子保存为 tar；省略 `-o` 或 `-o -` 时写到 stdout |
+
+列表筛选与 WebUI 资源分栏语义相同：
+
+| 参数 | 作用 |
+| --- | --- |
+| `--search` | 在 digest、名称、类型、文件路径和所在设备上做不区分大小写的子串匹配 |
+| `--kind` | `all`、`tree` 或 `blob` |
+| `--node` | 只列出该节点（名称或 peer id）上存有副本的种子 |
+| `--sort` | `name`（默认）、`size`、`kind`、`hops`、`replicas`、`created`、`digest` |
+| `--order` | `asc` 或 `desc`（`size` / `replicas` 默认降序） |
+| `--list-files` | 仅 `show`：列出目录树里的每一条路径。默认在文件数超过 100 时只显示数量，与看板预览规则一致 |
+
+`--json` 适用于列表和 `show`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。下载走内容接口，不是 bitswap；网格按 CID 取种仍未实现。
+
+### `ptc tasks`
+
+列出或查看网格内公开的运行记录。与 WebUI 任务列表共用 `GET /api/v1/runs`。`ptc tasks show` 会打印由 Prepare YAML 生成的工作树（目录、种子、输出和入口），任务详情页也按同一份记录渲染。
+
+```text
+ptc tasks
+ptc tasks --json
+ptc tasks --search cuda --status completed --sort started --order desc
+ptc tasks --node worker-a
+ptc tasks show run-20261110T155326Z-test
+```
+
+列表筛选与 WebUI 任务分栏语义相同：
+
+| 参数 | 作用 |
+| --- | --- |
+| `--search` | 在 id、中英文名称、状态、事件、触发者、目标、节点、peer id、摘要上做不区分大小写的子串匹配 |
+| `--status` | `all`、`in_progress`（含 queued）、`completed`（success / cancelled / skipped）、`failed`，或精确状态 |
+| `--node` | 按节点名或 peer id 过滤 |
+| `--sort` | `started`（默认）、`duration`、`name`、`status`、`node`、`id` |
+| `--order` | `asc` 或 `desc`（`started` / `duration` 默认降序） |
 
 ### `ptc policy`
 
@@ -208,6 +293,7 @@ YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不�
 | `policy.deny` | 字符串列表 | `[]` | 本机黑名单，优先于白名单。 |
 | `scan_interval` | 时长 | `30s` | 网关扫描受信任网段的间隔。小于等于 0 时回落到 30s。 |
 | `disable_mdns` | 布尔 | `false` | 为 true 时不做 mDNS 发现。Docker 跨网段测试会用到。 |
+| `scan_hosts` | 字符串列表 | `[]` | 网关在 CIDR 扫描之外额外探测的目标（主机名、IP，或 `host:port`）。解析到的地址也会被连接门禁放行。Docker 演示里网关用 `host.docker.internal` 找到 Windows 本机节点，而不去扫描整个 Docker Desktop 虚拟网段。 |
 
 网关扫描会跳过大于 `/16` 的前缀（可用地址超过 65534 的网段不会被展开）。跨网段拓扑应把受信任网段写成较窄的 CIDR，通常是 `/16` 或更小。
 
@@ -225,6 +311,10 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | `GET` | `/api/v1/peers` | `{"peers":[...]}`，不含本机 `name` / `version` 包装 |
 | `GET` | `/api/v1/policy` | 当前策略 |
 | `POST` | `/api/v1/policy` | 修改策略，JSON 见下；成功返回更新后的策略 |
+| `GET` | `/api/v1/runs` | 本机及邻居公开的运行记录。可选查询参数：`q`/`search`、`status`、`node`、`sort`、`order`（与 `ptc tasks` 相同） |
+| `GET` | `/api/v1/resources` | 全网种子清单（含所在设备与 hop 数）。可选查询参数：`q`/`search`、`kind`、`node`、`sort`、`order`（与 `ptc resources` 相同） |
+| `GET` | `/api/v1/resources/sha256/{hex}` | 单个种子的大小、副本与 hop 信息 |
+| `GET` | `/api/v1/resources/sha256/{hex}/content` | 下载该种子（tree 为 tar） |
 
 `POST /api/v1/policy` 请求体：
 
@@ -238,13 +328,34 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 
 `op` 只能是 `allow_add`、`allow_rm`、`deny_add`、`deny_rm`、`service`。未知 `op`、空条目或非法服务名返回 HTTP 400。
 
+### `ptc submit`
+
+在**本机**执行一份 Actions 风格的工作流：第一个步骤必须是 Prepare，最后一个必须是 Package result，中间是 `run` 步骤。网格下发和按 CID 到邻居取种尚未实现；种子需要 `seeds.local`，或已经放在本机 CAS 目录里的 `sha256:` 对象。
+
+```text
+ptc submit --workflow testdata/submit/workflow.yaml --dry-run
+ptc submit --workflow testdata/submit/workflow.yaml --data-dir /path/to/ptc-data
+ptc submit --workflow testdata/submit/workflow.yaml --job test --force --keep-worktree
+```
+
+| 参数 | 默认值 | 作用 |
+| --- | --- | --- |
+| `--workflow` | （必填） | 工作流 YAML 路径。Prepare / Package result 的 `with.file` 相对该文件所在目录解析。 |
+| `--job` | 空 | 工作流里有多个 job 时必须指定名称。只有一个 job 时可省略。 |
+| `--dry-run` | false | 只解析和校验，不建工作树、不执行。 |
+| `--force` | false | 跳过本机 NVIDIA / exec 检查。仅用于非 CUDA 校验或本机没有 GPU 时的联调。 |
+| `--keep-worktree` | false | 忽略 Package result 中的清理设置，保留工作树。 |
+
+成功后会在数据目录下写入 `runs/<id>.json`（含工作树快照）、`packages/seed-<name>/`（Prepare 依赖种子）和 `packages/<id>/`（结果种子，含 `manifest.json` 与 digest）。超过 100 个文件的目录树种子自动按整个目录计算一个 digest，不为内部小文件单独哈希；工作树预览展开时只显示文件数量。不超过 100 个文件的目录仍可展开查看具体文件。可用 `ptc webui --runs <数据目录>/runs` 在看板里查看这次运行，或用 `ptc tasks show <id>`、`ptc resources show <digest>` 查询。点击任务详情里的工作树种子或结果种子会跳到资源分栏。
+
+若 `prepare.yaml` 的 `target.require_nvidia` 为 true（默认），本机没有 NVIDIA GPU 时会拒绝执行，除非加 `--force`。
+
 ## 尚未实现的命令
 
 以下属于后续阶段，当前二进制没有这些子命令。若用户需要，说明现在是 P0，并指向设计文档：
 
 - `ptc dataset`
 - `ptc gc`
-- `ptc submit`
 - `ptc status`
 - `ptc logs`
 - `ptc artifacts`

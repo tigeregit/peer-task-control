@@ -1,0 +1,133 @@
+{
+  "tasks": [
+    {
+      "id": "p0-mesh-verify-20261110",
+      "name": {
+        "zh": "跨网段网格验证",
+        "en": "Cross-segment mesh verification"
+      },
+      "status": "success",
+      "event": "workflow_dispatch",
+      "actor": "ptc",
+      "target": "gateway",
+      "started_at": "2026-11-10T22:58:33+08:00",
+      "ended_at": "2026-11-10T22:59:00+08:00",
+      "source": "recorded",
+      "summary": {
+        "zh": "两段隔离成立，网关分别到达 worker-a 与 worker-b，目录收敛为 3 个节点，角色符合预期：网关不提供 exec，两台计算节点提供 exec。",
+        "en": "The two segments stayed isolated, the gateway reached worker-a and worker-b, the catalog converged on 3 nodes, and roles matched: the gateway does not offer exec, and both compute nodes do."
+      },
+      "annotations": [
+        {
+          "level": "notice",
+          "message": {
+            "zh": "这是 2026-11-10 22:59（Asia/Shanghai，UTC+8）Docker 双网段模拟的一次已记录运行。P2 任务下发尚未实现，因此这里不是 CUDA 作业。",
+            "en": "Recorded from the Docker two-segment mesh run at 2026-11-10 22:59 Asia/Shanghai (UTC+8). P2 task submit is not implemented yet, so this is not a CUDA job."
+          }
+        }
+      ],
+      "jobs": [
+        {
+          "id": "isolate",
+          "name": {"zh": "隔离网段", "en": "Isolate segments"},
+          "status": "success",
+          "started_at": "2026-11-10T22:58:33+08:00",
+          "ended_at": "2026-11-10T22:58:40+08:00",
+          "steps": [
+            {
+              "id": "a-to-b",
+              "name": {"zh": "阻止 worker-a 直连 worker-b", "en": "Block worker-a from reaching worker-b"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:33+08:00",
+              "ended_at": "2026-11-10T22:58:36+08:00",
+              "log": "tcp 10.87.0.10 → 10.87.1.10:18765\ntimeout (expected)"
+            },
+            {
+              "id": "b-to-a",
+              "name": {"zh": "阻止 worker-b 直连 worker-a", "en": "Block worker-b from reaching worker-a"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:36+08:00",
+              "ended_at": "2026-11-10T22:58:40+08:00",
+              "log": "tcp 10.87.1.10 → 10.87.0.10:18765\ntimeout (expected)"
+            }
+          ]
+        },
+        {
+          "id": "reach",
+          "name": {"zh": "从网关到达计算节点", "en": "Reach workers from the gateway"},
+          "status": "success",
+          "started_at": "2026-11-10T22:58:40+08:00",
+          "ended_at": "2026-11-10T22:58:44+08:00",
+          "steps": [
+            {
+              "id": "gw-a",
+              "name": {"zh": "网关连接 worker-a:18765", "en": "Gateway connects to worker-a:18765"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:40+08:00",
+              "ended_at": "2026-11-10T22:58:42+08:00",
+              "log": "tcp 10.87.0.2 → 10.87.0.10:18765 ok"
+            },
+            {
+              "id": "gw-b",
+              "name": {"zh": "网关连接 worker-b:18765", "en": "Gateway connects to worker-b:18765"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:42+08:00",
+              "ended_at": "2026-11-10T22:58:44+08:00",
+              "log": "tcp 10.87.1.2 → 10.87.1.10:18765 ok"
+            }
+          ]
+        },
+        {
+          "id": "catalog",
+          "name": {"zh": "发布邻居目录", "en": "Publish neighbor catalog"},
+          "status": "success",
+          "started_at": "2026-11-10T22:58:44+08:00",
+          "ended_at": "2026-11-10T22:58:52+08:00",
+          "steps": [
+            {
+              "id": "converge",
+              "name": {"zh": "目录收敛为 3 个节点", "en": "Catalog converges on 3 nodes"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:44+08:00",
+              "ended_at": "2026-11-10T22:58:52+08:00",
+              "log": "gateway 10.87.0.2, 10.87.1.2:18765\nworker-a 10.87.0.10:18765\nworker-b 10.87.1.10:18765"
+            }
+          ]
+        },
+        {
+          "id": "roles",
+          "name": {"zh": "核对节点角色", "en": "Check node roles"},
+          "status": "success",
+          "started_at": "2026-11-10T22:58:52+08:00",
+          "ended_at": "2026-11-10T22:59:00+08:00",
+          "steps": [
+            {
+              "id": "gw-role",
+              "name": {"zh": "网关：relay 开启，exec 关闭，无 NVIDIA", "en": "Gateway: relay on, exec off, no NVIDIA"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:52+08:00",
+              "ended_at": "2026-11-10T22:58:55+08:00",
+              "log": "exec=no (this node has no NVIDIA GPU)\nfiles=on\nrelay=on\nnvidia=false linux/amd64"
+            },
+            {
+              "id": "wa-role",
+              "name": {"zh": "worker-a：exec 开启，relay 关闭", "en": "worker-a: exec on, relay off"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:55+08:00",
+              "ended_at": "2026-11-10T22:58:57+08:00",
+              "log": "exec=on\nfiles=on\nrelay=no (service relay is disabled on this host)\nnvidia=NVIDIA GeForce RTX 4090 24564MiB driver=560.00"
+            },
+            {
+              "id": "wb-role",
+              "name": {"zh": "worker-b：exec 开启，relay 关闭", "en": "worker-b: exec on, relay off"},
+              "status": "success",
+              "started_at": "2026-11-10T22:58:57+08:00",
+              "ended_at": "2026-11-10T22:59:00+08:00",
+              "log": "exec=on\nfiles=on\nrelay=no (service relay is disabled on this host)\nnvidia=NVIDIA GeForce RTX 4090 24564MiB driver=560.00"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

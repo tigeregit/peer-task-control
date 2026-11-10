@@ -2,7 +2,7 @@
 
 版本：与 `ptc version` 相同（当前 0.1.0-p0）。若本 skill 与机器上的 `ptc version` 不一致，先升级再继续，不要混用命令说明。
 
-你在帮助用户把 CUDA 程序和测试数据派到局域网上的指定机器。当前软件只完成了组网（P0）：可以发现邻居、查看服务、设置本机策略。入库、submit、工作树、WebUI、SSH 安装和远程升级还没有实现；不要虚构这些命令的行为。
+你在帮助用户把 CUDA 程序和测试数据派到局域网上的指定机器。当前软件完成了组网（P0），以及本机工作流执行：`ptc submit` 会按 Prepare / run / Package result 在本机搭工作树、跑步骤并打包结果。网格下发、按 CID 从邻居取种、SSH 安装和远程升级还没有实现；不要虚构这些行为。
 
 ## 必须遵守
 
@@ -19,15 +19,27 @@ ptc version
 ptc skill print
 ptc daemon --config config.yaml
 ptc peers
+ptc peers show <name|peer>
 ptc policy show
 ptc policy allow add <IP|CIDR|节点名|peerID>
 ptc policy allow rm <同上>
 ptc policy deny add <同上>
 ptc policy deny rm <同上>
 ptc policy service exec|files|relay on|off
+ptc submit --workflow <file>
+ptc submit --workflow <file> --dry-run
+ptc webui --runs <data-dir>/runs
+ptc tasks
+ptc tasks --search <q> --status <status> --node <name> --sort started --order desc
+ptc tasks show <id>
+ptc resources
+ptc resources --search <q> --kind tree|blob --node <name> --sort name
+ptc resources show <digest>
+ptc resources show <digest> --list-files
+ptc resources get <digest> -o <file>
 ```
 
-`ptc peers` 会列出已知节点，以及执行、文件、中转是否开放。目录里仍能看到关闭了部分服务的节点，只是对应服务会标明关闭原因。
+`ptc peers` 会列出已知节点，以及执行、文件、中转是否开放。目录里仍能看到关闭了部分服务的节点，只是对应服务会标明关闭原因。`ptc peers show` 查看一台设备的硬件、历史任务和存储的种子。`ptc tasks` 和 `ptc resources` 与 WebUI 共用同一套本机控制接口和筛选/排序/搜索语义：前者列出网格内公开的运行记录，`tasks show` 会给出按 Prepare YAML 渲染的工作树；后者列出全网种子（含 Prepare 依赖和 Package 结果）、所在节点数、创建时间和到当前节点的最短中转次数，并支持下载。超过 100 个文件的目录树种子自动以目录为操作单位（整个目录一个 digest，不为小文件单独哈希）；看板展开和工作树预览默认只显示文件数量，CLI 可用 `resources show --list-files` 列出路径。不超过 100 个文件的目录仍可展开查看具体文件。WebUI 是只读看板，不要通过它改策略或提交作业；`ptc policy`、`ptc submit` 和 `ptc daemon` 只在 CLI 使用。在 Docker 演示中验证 Windows 本机入网时，用 `docker/run-host-node.ps1` 启动名为 `host` 的原生节点。
 
 ## 排障顺序
 
@@ -35,10 +47,10 @@ ptc policy service exec|files|relay on|off
 2. 确认 daemon 在跑，`ptc peers` 能连上本机 API。
 3. 确认配置里的 `trusted_cidrs` 覆盖了本机和目标机所在网段，且监听端口是 18765（或配置中的同一端口）。
 4. 同网段仍看不见：检查防火墙是否放行该 TCP 端口，等待一轮 mDNS / 探测。
-5. 跨网段看不见：确认至少有一台 `relay` 网关能访问两个网段，等待一轮扫描间隔（默认 30 秒），不要去填邻居地址。
+5. 跨网段看不见：确认至少有一台 `relay` 网关能访问两个网段，等待一轮扫描间隔（默认 30 秒），不要去填邻居地址。网关可用 `scan_hosts` 额外探测主机名（例如本机 `host.docker.internal`）。
 6. 对端看得到但请求被拒：用 `ptc policy show` 查看目标机的白名单、黑名单和功能开关。拒绝应带明确原因。
 7. 仍然不对：阅读仓库里的 `docs/DESIGN.md`（以及设计 Page）、`docs/CONTRIBUTING.md`，按其中的 issue / PR / commit 规则报告或改代码，不要在节点上私下打补丁。
 
 ## 尚未提供（不要调用）
 
-`ptc dataset`、`ptc gc`、`ptc submit`、`ptc status`、`ptc logs`、`ptc artifacts`、`ptc install --ssh`、`ptc update` 属于后续阶段。若用户需要这些，说明当前是 P0，并指向设计文档。
+`ptc dataset`、`ptc gc`、`ptc status`、`ptc logs`、`ptc artifacts`、`ptc install --ssh`、`ptc update`，以及把任务下发到其他节点，属于后续阶段。查询和下载已有结果种子请用 `ptc resources`，不要调用尚未提供的 `ptc artifacts`。`ptc submit` 目前只在本机执行。若用户需要网格下发，说明尚未实现，并指向 `docs/PREPARE.md`、`docs/PACKAGE-RESULT.md` 和设计文档。

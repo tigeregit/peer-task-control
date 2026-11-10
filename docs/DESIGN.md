@@ -22,6 +22,6 @@ Windows 上开发 CUDA。任务要把程序和大量测试数据送到正确的�
 ## 后续阶段（尚未实现）
 
 - P1：boxo UnixFS / bitswap / filestore / pin，永久与临时分级。
-- P2：工作树任务。
-- P3：WebUI 与版本绑定 skill 的完整界面。
+- P2：工作树任务。任务大纲借鉴 Actions 的 job/step，每个 job 必须以 prepare 开头、以 package result 收尾（[PREPARE.md](PREPARE.md)、[PACKAGE-RESULT.md](PACKAGE-RESULT.md)，模板在 [templates/](templates/)）。`ptc submit` 已能在本机执行该大纲；向其他节点下发尚未实现。
+- P3：WebUI 与版本绑定 skill 的完整界面。当前已有只读任务看板，含任务 / 资源 / 节点分栏；资源查询与下载和 CLI 共用本机控制接口。官方完整产品界面仍待后续。
 - P4：SSH 首次安装、网格升级与回退。

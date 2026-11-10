@@ -1,0 +1,58 @@
+{
+  "overall": "通过",
+  "generated_at": "2026-11-10 22:59 Asia/Shanghai (UTC+8)",
+  "environment": "iamsbb2 · Windows · Go 1.27.3 · Docker 29.8.0 · ptc 0.1.0-p0",
+  "webui": "http://127.0.0.1:18790",
+  "webui_kind": "p0-mesh-test-board（不是 P3 任务 WebUI）",
+  "stack_kept": true,
+  "phases": [
+    {
+      "id": "P0-A",
+      "name": "单元测试（策略、受信任 CIDR、目录、身份询问、扫描）",
+      "result": "通过",
+      "detail": "iamsbb2 上 go test ./... 退出码 0。通过：internal/catalog、config、gater、ident、node、policy、scan。"
+    },
+    {
+      "id": "P0-B",
+      "name": "同机多进程：127.0.0.1/2/3 经网关互见",
+      "result": "通过",
+      "detail": "包含在 internal/node 测试中（TestGatewayScanPushesCatalog），本轮实跑 0.571s。"
+    },
+    {
+      "id": "P0-C.1",
+      "name": "网段隔离：计算节点不能直连另一网段",
+      "result": "通过",
+      "detail": "worker-a 拨 10.87.1.10:18765 超时；worker-b 拨 10.87.0.10:18765 超时。"
+    },
+    {
+      "id": "P0-C.2",
+      "name": "网关可达：白名单网关能拨两个网段",
+      "result": "通过",
+      "detail": "gateway 成功连接 10.87.0.10:18765 与 10.87.1.10:18765。"
+    },
+    {
+      "id": "P0-C.3",
+      "name": "三台 daemon 本机 API 就绪",
+      "result": "通过",
+      "detail": "worker-a、worker-b、gateway 的 ptc peers 均成功。"
+    },
+    {
+      "id": "P0-C.4",
+      "name": "经网关发现完整邻居目录",
+      "result": "通过",
+      "detail": "每台都能看到另外两台。本轮目录含 gateway、worker-a、worker-b。"
+    },
+    {
+      "id": "P0-C.5",
+      "name": "角色：网关无 GPU 不可执行，计算节点可执行",
+      "result": "通过",
+      "detail": "worker-a/b 提供 exec（模拟 NVIDIA GeForce RTX 4090）；gateway 的 exec 为 no，原因 this node has no NVIDIA GPU；gateway 提供 relay 与 files。"
+    },
+    {
+      "id": "看板",
+      "name": "本机组网与测试看板可打开",
+      "result": "通过",
+      "detail": "http://127.0.0.1:18790 返回 200，并读到实时目录。这是 P0 只读看板，不是尚未实现的 P3 任务 WebUI。"
+    }
+  ]
+}
