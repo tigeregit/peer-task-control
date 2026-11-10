@@ -11,10 +11,10 @@ function Write-Phase($title) {
 function Pass($msg) { Write-Host "PASS: $msg" }
 function Fail($msg) { Write-Host "FAIL: $msg"; throw $msg }
 
-$compose = @("docker", "compose", "-f", "docker/docker-compose.yml")
+$compose = @("docker", "compose", "-f", "docker/docker-compose.yml", "-f", "docker/docker-compose.p0-test.yml")
 
 function Invoke-In($service, $args) {
-    & docker compose -f docker/docker-compose.yml exec -T $service @args
+    & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T $service @args
     return $LASTEXITCODE
 }
 
@@ -29,24 +29,24 @@ if ($LASTEXITCODE -ne 0) { Fail "go build ptc-linux" }
 if ($LASTEXITCODE -ne 0) { Fail "go build tcpprobe-linux" }
 Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED -ErrorAction SilentlyContinue
 
-& docker compose -f docker/docker-compose.yml down -v --remove-orphans | Out-Host
-& docker compose -f docker/docker-compose.yml build --quiet | Out-Host
+& docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml down -v --remove-orphans | Out-Host
+& docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml build --quiet | Out-Host
 if ($LASTEXITCODE -ne 0) { Fail "docker compose build" }
-& docker compose -f docker/docker-compose.yml up -d | Out-Host
+& docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml up -d | Out-Host
 if ($LASTEXITCODE -ne 0) { Fail "docker compose up" }
 
 try {
     Write-Phase "P0-C.1 网段隔离（计算节点不能直连另一网段）"
-    & docker compose -f docker/docker-compose.yml exec -T worker-a tcpprobe 10.87.1.10:18765
+    & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T worker-a tcpprobe 10.87.1.10:18765
     if ($LASTEXITCODE -eq 0) { Fail "worker-a should not reach worker-b" }
-    & docker compose -f docker/docker-compose.yml exec -T worker-b tcpprobe 10.87.0.10:18765
+    & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T worker-b tcpprobe 10.87.0.10:18765
     if ($LASTEXITCODE -eq 0) { Fail "worker-b should not reach worker-a" }
     Pass "worker-a and worker-b cannot connect across segments"
 
     Write-Phase "P0-C.2 网关可达（白名单网关能拨两个网段）"
-    & docker compose -f docker/docker-compose.yml exec -T gateway tcpprobe 10.87.0.10:18765
+    & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T gateway tcpprobe 10.87.0.10:18765
     if ($LASTEXITCODE -ne 0) { Fail "gateway cannot reach worker-a" }
-    & docker compose -f docker/docker-compose.yml exec -T gateway tcpprobe 10.87.1.10:18765
+    & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T gateway tcpprobe 10.87.1.10:18765
     if ($LASTEXITCODE -ne 0) { Fail "gateway cannot reach worker-b" }
     Pass "gateway reaches both workers"
 
@@ -54,7 +54,7 @@ try {
     foreach ($svc in @("worker-a", "worker-b", "gateway")) {
         $up = $false
         for ($i = 0; $i -lt 30; $i++) {
-            & docker compose -f docker/docker-compose.yml exec -T $svc ptc peers --data-dir /data | Out-Null
+            & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T $svc ptc peers --data-dir /data | Out-Null
             if ($LASTEXITCODE -eq 0) { $up = $true; break }
             Start-Sleep -Seconds 1
         }
@@ -65,9 +65,9 @@ try {
     Write-Phase "P0-C.4 经网关发现完整邻居目录"
     $ok = $false
     for ($i = 0; $i -lt 45; $i++) {
-        $ja = & docker compose -f docker/docker-compose.yml exec -T worker-a ptc peers --data-dir /data --json 2>$null
-        $jb = & docker compose -f docker/docker-compose.yml exec -T worker-b ptc peers --data-dir /data --json 2>$null
-        $jg = & docker compose -f docker/docker-compose.yml exec -T gateway ptc peers --data-dir /data --json 2>$null
+        $ja = & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T worker-a ptc peers --data-dir /data --json 2>$null
+        $jb = & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T worker-b ptc peers --data-dir /data --json 2>$null
+        $jg = & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T gateway ptc peers --data-dir /data --json 2>$null
         if (($ja -match '"name": "worker-b"') -and ($ja -match '"name": "gateway"') -and
             ($jb -match '"name": "worker-a"') -and ($jb -match '"name": "gateway"') -and
             ($jg -match '"name": "worker-a"') -and ($jg -match '"name": "worker-b"')) {
@@ -77,14 +77,14 @@ try {
         Start-Sleep -Seconds 2
     }
     if (-not $ok) {
-        & docker compose -f docker/docker-compose.yml exec -T worker-a ptc peers --data-dir /data | Out-Host
+        & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T worker-a ptc peers --data-dir /data | Out-Host
         Fail "catalog did not converge"
     }
     Pass "each node sees the other two via the gateway catalog"
 
     Write-Phase "P0-C.5 角色：网关无 GPU 不可执行，计算节点可执行"
     function Get-PeerMap($svc) {
-        $raw = & docker compose -f docker/docker-compose.yml exec -T $svc ptc peers --data-dir /data --json
+        $raw = & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml exec -T $svc ptc peers --data-dir /data --json
         if ($LASTEXITCODE -ne 0) { Fail "$svc ptc peers failed" }
         $st = $raw | ConvertFrom-Json
         $map = @{}
@@ -126,6 +126,6 @@ try {
 }
 finally {
     if ($env:PTC_KEEP_STACK -ne "1") {
-        & docker compose -f docker/docker-compose.yml down -v --remove-orphans | Out-Host
+        & docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml down -v --remove-orphans | Out-Host
     }
 }

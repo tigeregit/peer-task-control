@@ -37,3 +37,8 @@ policy:
 
 # 网关（relay: true）扫描受信任网段的间隔。
 scan_interval: 30s
+
+# 额外探测目标（主机名、IP，或 host:port）。解析到的地址也会被准入。
+# 用来把本机 Windows 节点接到 Docker 网格：gateway 写 host.docker.internal。
+# scan_hosts:
+#   - host.docker.internal

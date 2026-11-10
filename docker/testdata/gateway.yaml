@@ -13,3 +13,5 @@ policy:
   deny: []
 scan_interval: 5s
 disable_mdns: true
+scan_hosts:
+  - host.docker.internal

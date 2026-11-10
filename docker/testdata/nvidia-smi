@@ -1,3 +1,4 @@
 #!/bin/sh
-# Mock a compute node that has an NVIDIA GPU. Not installed on the gateway.
+# Test-only mock used by docker-compose.p0-test.yml. Do not install this into
+# the live WebUI mesh; those nodes must report real hardware only.
 echo "NVIDIA GeForce RTX 4090, 24564, 560.00"

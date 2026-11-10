@@ -1,0 +1,52 @@
+{
+  "id": "run-worker-b-smoke-20261110",
+  "name": {
+    "zh": "计算节点自检（worker-b）",
+    "en": "Compute node smoke (worker-b)"
+  },
+  "status": "success",
+  "event": "workflow_dispatch",
+  "actor": "worker-b",
+  "target": "worker-b",
+  "started_at": "2026-11-10T23:54:00+08:00",
+  "ended_at": "2026-11-10T23:54:08+08:00",
+  "summary": {
+    "zh": "worker-b 上的一条公开运行记录，用于验证看板能看到其他节点的任务。",
+    "en": "A published run on worker-b, to verify the board can see other nodes' tasks."
+  },
+  "annotations": [
+    {
+      "level": "notice",
+      "message": {
+        "zh": "这是网格公开记录的示例，不是真实 CUDA 作业。",
+        "en": "Sample published mesh record, not a real CUDA job."
+      }
+    }
+  ],
+  "jobs": [
+    {
+      "id": "smoke",
+      "name": {
+        "zh": "自检",
+        "en": "Smoke"
+      },
+      "status": "success",
+      "started_at": "2026-11-10T23:54:00+08:00",
+      "ended_at": "2026-11-10T23:54:08+08:00",
+      "steps": [
+        {
+          "id": "ping",
+          "name": {
+            "zh": "报告节点身份",
+            "en": "Report node identity"
+          },
+          "status": "success",
+          "started_at": "2026-11-10T23:54:00+08:00",
+          "ended_at": "2026-11-10T23:54:08+08:00",
+          "log": "node=worker-b\nok"
+        }
+      ]
+    }
+  ],
+  "source": "local-submit"
+}

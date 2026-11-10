@@ -1,5 +1,8 @@
 # Simulate the real mesh: two isolated trusted subnets and a whitelist
 # gateway that can reach both, store data, and forward — but has no NVIDIA GPU.
+# This default file is what the live WebUI uses: no mocked GPUs and no recorded
+# test tasks. Official P0-C tests that need a fake nvidia-smi should also pass
+# -f docker/docker-compose.p0-test.yml.
 name: ptc-p0
 
 networks:
@@ -26,11 +29,8 @@ services:
         ipv4_address: 10.87.0.10
     volumes:
       - ./testdata/worker-a.yaml:/etc/ptc/config.yaml:ro
-      - ./testdata/nvidia-smi:/opt/ptc/nvidia-smi:ro
       - a-data:/data
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - cp /opt/ptc/nvidia-smi /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi && exec ptc daemon --config /etc/ptc/config.yaml --data-dir /data
+    command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
 
   worker-b:
     image: ptc:p0
@@ -42,12 +42,11 @@ services:
         ipv4_address: 10.87.1.10
     volumes:
       - ./testdata/worker-b.yaml:/etc/ptc/config.yaml:ro
-      - ./testdata/nvidia-smi:/opt/ptc/nvidia-smi:ro
       - b-data:/data
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - cp /opt/ptc/nvidia-smi /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi && exec ptc daemon --config /etc/ptc/config.yaml --data-dir /data
+    command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
 
+  # The Windows host itself is not a container. Run it with
+  # docker/run-host-node.ps1; the gateway probes host.docker.internal:18765.
   gateway:
     image: ptc:p0
     hostname: gateway
@@ -59,10 +58,24 @@ services:
         ipv4_address: 10.87.0.2
       seg_b:
         ipv4_address: 10.87.1.2
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:18790:18790"
     volumes:
       - ./testdata/gateway.yaml:/etc/ptc/config.yaml:ro
       - gw-data:/data
     command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
+
+  webui:
+    image: ptc:p0
+    network_mode: "service:gateway"
+    depends_on:
+      - gateway
+    entrypoint: ["ptc"]
+    # Live board only: mesh catalog and real run records from the daemon API.
+    # Do not mount recorded test tasks or mocked GPU fixtures here.
+    command: ["webui", "--listen", "0.0.0.0:18790", "--api", "127.0.0.1:18780"]
 
 volumes:
   a-data:

@@ -12,3 +12,12 @@ Thumbs.db
 
 docker/ptc-linux
 docker/tcpprobe-linux
+
+# Copied result packages for the Docker mesh (often large)
+docker/testdata/node-packages/**
+!docker/testdata/node-packages/.gitkeep
+!docker/testdata/node-packages/**/.gitkeep
+docker/ptc-windows.exe
+
+# Native Windows host node data (identity, runs, packages)
+docker/testdata/host-data/

@@ -1,0 +1,18 @@
+# Test-only overlay. Adds a mocked nvidia-smi so P0-C can assert exec roles
+# without a real GPU. Never use this file with the live WebUI.
+name: ptc-p0
+
+services:
+  worker-a:
+    volumes:
+      - ./testdata/nvidia-smi:/opt/ptc/nvidia-smi:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - cp /opt/ptc/nvidia-smi /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi && exec ptc daemon --config /etc/ptc/config.yaml --data-dir /data
+
+  worker-b:
+    volumes:
+      - ./testdata/nvidia-smi:/opt/ptc/nvidia-smi:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - cp /opt/ptc/nvidia-smi /usr/local/bin/nvidia-smi && chmod +x /usr/local/bin/nvidia-smi && exec ptc daemon --config /etc/ptc/config.yaml --data-dir /data

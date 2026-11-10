@@ -3,7 +3,7 @@
 # Run from the repo root after the stack is up:
 #   docker/p0-test.sh
 set -eu
-COMPOSE="${COMPOSE:-docker compose -f docker/docker-compose.yml}"
+COMPOSE="${COMPOSE:-docker compose -f docker/docker-compose.yml -f docker/docker-compose.p0-test.yml}"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "PASS: $*"; }
 phase() { echo; echo "==== $* ===="; }
