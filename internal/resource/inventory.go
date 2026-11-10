@@ -20,6 +20,7 @@ type packageManifest struct {
 	Format    string            `json:"format,omitempty"`
 	CreatedAt *time.Time        `json:"created_at,omitempty"`
 	RunOK     *bool             `json:"run_ok,omitempty"`
+	Pin       bool              `json:"pin,omitempty"`
 }
 
 type manifestEntry struct {
@@ -50,8 +51,13 @@ func Inventory(dataDir string) []Seed {
 	if dataDir == "" {
 		return nil
 	}
+	return InventoryAt(filepath.Join(dataDir, "packages"), filepath.Join(dataDir, "cas"))
+}
+
+// InventoryAt lists tree seeds in packagesDir and blob seeds in casDir.
+func InventoryAt(packagesDir, casDir string) []Seed {
 	by := map[string]Seed{}
-	pkgRoot := filepath.Join(dataDir, "packages")
+	pkgRoot := packagesDir
 	ents, _ := os.ReadDir(pkgRoot)
 	for _, e := range ents {
 		if !e.IsDir() {
@@ -63,7 +69,7 @@ func Inventory(dataDir string) []Seed {
 		}
 		by[s.Digest] = s
 	}
-	casRoot := filepath.Join(dataDir, "cas")
+	casRoot := casDir
 	_ = filepath.Walk(casRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
 			return nil
@@ -100,7 +106,7 @@ func loadPackage(dir string) (Seed, bool) {
 	if json.Unmarshal(stripBOM(b), &man) != nil || Normalize(man.Digest) == "" {
 		return Seed{}, false
 	}
-	s := Seed{Digest: Normalize(man.Digest), Name: man.SeedName, Kind: "tree", Unit: man.Unit, Size: man.Size, FileCount: man.FileCount}
+	s := Seed{Digest: Normalize(man.Digest), Name: man.SeedName, Kind: "tree", Unit: man.Unit, Size: man.Size, FileCount: man.FileCount, Pin: man.Pin, RunOK: man.RunOK}
 	if s.Name == "" {
 		s.Name = filepath.Base(dir)
 	}
@@ -199,11 +205,19 @@ func earlierTime(a, b *time.Time) *time.Time {
 
 // FindPackageDir returns the packages/<id> directory that holds digest.
 func FindPackageDir(dataDir, digest string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return FindPackageDirAt(filepath.Join(dataDir, "packages"), digest)
+}
+
+// FindPackageDirAt is FindPackageDir with an explicit packages directory.
+func FindPackageDirAt(packagesDir, digest string) string {
 	digest = Normalize(digest)
 	if digest == "" {
 		return ""
 	}
-	root := filepath.Join(dataDir, "packages")
+	root := packagesDir
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		return ""

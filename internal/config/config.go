@@ -28,6 +28,27 @@ type Services struct {
 type Policy struct {
 	Allow []string `yaml:"allow"`
 	Deny  []string `yaml:"deny"`
+	// RemoteClean, when true, lets a trusted peer ask this node to delete
+	// local seeds, worktrees, or run records. Default is off; ptc clean
+	// operates on the local node unless this is enabled on the target.
+	RemoteClean bool `yaml:"remote_clean,omitempty"`
+}
+
+// Storage holds the three data roots. Empty fields default under data_dir.
+// Windows paths (including another drive such as D:\ptc\worktrees) are fine.
+type Storage struct {
+	// SeedsDir is the parent of cas/ and packages/. Default: data_dir.
+	SeedsDir string `yaml:"seeds_dir,omitempty"`
+	// WorktreesDir is the root of per-run worktrees. Default: data_dir/worktrees.
+	WorktreesDir string `yaml:"worktrees_dir,omitempty"`
+	// RunsDir holds run records and the persistent job queue. Default: data_dir/runs.
+	RunsDir string `yaml:"runs_dir,omitempty"`
+}
+
+// Exec controls how this node runs dispatched jobs.
+type Exec struct {
+	// Concurrency is how many jobs this exec node runs at once. Default 1.
+	Concurrency int `yaml:"concurrency,omitempty"`
 }
 
 type Config struct {
@@ -47,6 +68,8 @@ type Config struct {
 	// node can be reached via host.docker.internal without scanning that
 	// whole virtual subnet.
 	ScanHosts    []string     `yaml:"scan_hosts,omitempty"`
+	Storage      Storage      `yaml:"storage,omitempty"`
+	Exec         Exec         `yaml:"exec,omitempty"`
 	Path         string       `yaml:"-"`
 	TrustedNets  []*net.IPNet `yaml:"-"`
 	PSKBytes     []byte       `yaml:"-"`
@@ -144,8 +167,71 @@ func (c *Config) Normalize() error {
 		}
 		c.PSKBytes = b
 	}
+	c.ApplyEnv()
+	if c.Exec.Concurrency <= 0 {
+		c.Exec.Concurrency = 1
+	}
 	c.ResolveScanHosts()
 	return nil
+}
+
+// ApplyEnv overlays PTC_DATA_DIR, PTC_SEEDS_DIR, PTC_WORKTREES_DIR, and
+// PTC_RUNS_DIR. Call this from Normalize; CLI flags should be applied after Load.
+func (c *Config) ApplyEnv() {
+	if v := strings.TrimSpace(os.Getenv("PTC_DATA_DIR")); v != "" {
+		c.DataDir = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PTC_SEEDS_DIR")); v != "" {
+		c.Storage.SeedsDir = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PTC_WORKTREES_DIR")); v != "" {
+		c.Storage.WorktreesDir = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PTC_RUNS_DIR")); v != "" {
+		c.Storage.RunsDir = v
+	}
+}
+
+// SeedsDir is the parent of cas/ and packages/.
+func (c *Config) SeedsDir() string {
+	if c != nil && strings.TrimSpace(c.Storage.SeedsDir) != "" {
+		return c.Storage.SeedsDir
+	}
+	if c != nil && c.DataDir != "" {
+		return c.DataDir
+	}
+	return DefaultDataDir()
+}
+
+func (c *Config) PackagesDir() string { return filepath.Join(c.SeedsDir(), "packages") }
+func (c *Config) CASDir() string      { return filepath.Join(c.SeedsDir(), "cas") }
+
+func (c *Config) WorktreesDir() string {
+	if c != nil && strings.TrimSpace(c.Storage.WorktreesDir) != "" {
+		return c.Storage.WorktreesDir
+	}
+	if c != nil && c.DataDir != "" {
+		return filepath.Join(c.DataDir, "worktrees")
+	}
+	return filepath.Join(DefaultDataDir(), "worktrees")
+}
+
+func (c *Config) RunsDir() string {
+	if c != nil && strings.TrimSpace(c.Storage.RunsDir) != "" {
+		return c.Storage.RunsDir
+	}
+	if c != nil && c.DataDir != "" {
+		return filepath.Join(c.DataDir, "runs")
+	}
+	return filepath.Join(DefaultDataDir(), "runs")
+}
+
+func (c *Config) FetchTmpDir() string {
+	return filepath.Join(c.WorktreesDir(), ".fetch")
+}
+
+func (c *Config) QueueDir() string {
+	return filepath.Join(c.RunsDir(), "queue")
 }
 
 func ParsePSK(s string) ([]byte, error) {

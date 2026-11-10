@@ -77,3 +77,40 @@ func TestScanHostsTrustResolvedIP(t *testing.T) {
 		t.Fatalf("ScanHostPorts = %v", ports)
 	}
 }
+
+func TestStoragePathsAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	seeds := filepath.Join(dir, "seeds-root")
+	wt := filepath.Join(dir, "D-drive", "worktrees")
+	runs := filepath.Join(dir, "runs-root")
+	t.Setenv("PTC_SEEDS_DIR", seeds)
+	t.Setenv("PTC_WORKTREES_DIR", wt)
+	t.Setenv("PTC_RUNS_DIR", runs)
+	c := Defaults()
+	c.TrustedCIDRs = []string{"127.0.0.0/8"}
+	c.DataDir = filepath.Join(dir, "data")
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if c.SeedsDir() != seeds || c.PackagesDir() != filepath.Join(seeds, "packages") || c.CASDir() != filepath.Join(seeds, "cas") {
+		t.Fatalf("seeds %s packages %s cas %s", c.SeedsDir(), c.PackagesDir(), c.CASDir())
+	}
+	if c.WorktreesDir() != wt {
+		t.Fatalf("worktrees %s", c.WorktreesDir())
+	}
+	if c.RunsDir() != runs {
+		t.Fatalf("runs %s", c.RunsDir())
+	}
+	t.Setenv("PTC_SEEDS_DIR", "")
+	t.Setenv("PTC_WORKTREES_DIR", "")
+	t.Setenv("PTC_RUNS_DIR", "")
+	c2 := Defaults()
+	c2.TrustedCIDRs = []string{"127.0.0.0/8"}
+	c2.DataDir = filepath.Join(dir, "data")
+	if err := c2.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if c2.SeedsDir() != c2.DataDir || c2.WorktreesDir() != filepath.Join(c2.DataDir, "worktrees") || c2.RunsDir() != filepath.Join(c2.DataDir, "runs") {
+		t.Fatalf("defaults seeds=%s wt=%s runs=%s", c2.SeedsDir(), c2.WorktreesDir(), c2.RunsDir())
+	}
+}

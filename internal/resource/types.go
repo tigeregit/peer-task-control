@@ -15,6 +15,8 @@ type Seed struct {
 	FileCount int        `json:"file_count,omitempty"`
 	Files     []File     `json:"files,omitempty"`
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Pin       bool       `json:"pin,omitempty"`
+	RunOK     *bool      `json:"run_ok,omitempty"`
 }
 
 type File struct {

@@ -78,6 +78,7 @@ func PublishTreeTo(packagesDir, name, src string, created time.Time) (Seed, erro
 type CommitOpts struct {
 	Format string
 	RunOK  *bool
+	Pin    bool
 }
 
 // CommitTree records pkg as a directory-unit tree seed: one digest for the
@@ -118,6 +119,7 @@ func CommitTree(pkg, name string, created time.Time, opts CommitOpts) (Seed, err
 	if opts.RunOK != nil {
 		man.RunOK = opts.RunOK
 	}
+	man.Pin = opts.Pin
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
 		return Seed{}, err
@@ -133,4 +135,61 @@ func CommitTree(pkg, name string, created time.Time, opts CommitOpts) (Seed, err
 		s.Name = name
 	}
 	return s, nil
+}
+
+// IsPinned reports whether the package at dir is marked pinned in its manifest.
+func IsPinned(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return false
+	}
+	var man packageManifest
+	if json.Unmarshal(stripBOM(b), &man) != nil {
+		return false
+	}
+	return man.Pin
+}
+
+// SetPin updates the pin flag on an existing package manifest.
+func SetPin(dir string, pin bool) error {
+	path := filepath.Join(dir, "manifest.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var man packageManifest
+	if err := json.Unmarshal(stripBOM(b), &man); err != nil {
+		return err
+	}
+	man.Pin = pin
+	out, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o644)
+}
+
+// FindByDigest returns the package directory and seed for digest under packagesDir, or a CAS path.
+func FindByDigest(packagesDir, casDir, digest string) (kind, path string, seed Seed, ok bool) {
+	digest = Normalize(digest)
+	if dir := FindPackageDirAt(packagesDir, digest); dir != "" {
+		s, loaded := loadPackage(dir)
+		return "tree", dir, s, loaded
+	}
+	hex := Hex(digest)
+	if hex == "" {
+		return "", "", Seed{}, false
+	}
+	p := filepath.Join(casDir, "sha256", hex[:2], hex)
+	if st, err := os.Stat(p); err == nil && !st.IsDir() {
+		return "blob", p, Seed{Digest: digest, Kind: "blob", Size: st.Size()}, true
+	}
+	// also accept the cas.Store layout even if casDir already is .../cas
+	if _, err := os.Stat(p); err != nil {
+		alt := filepath.Join(casDir, hex[:2], hex)
+		if st, err := os.Stat(alt); err == nil && !st.IsDir() {
+			return "blob", alt, Seed{Digest: digest, Kind: "blob", Size: st.Size()}, true
+		}
+	}
+	return "", "", Seed{}, false
 }

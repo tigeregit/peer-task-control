@@ -42,3 +42,22 @@ scan_interval: 30s
 # 用来把本机 Windows 节点接到 Docker 网格：gateway 写 host.docker.internal。
 # scan_hosts:
 #   - host.docker.internal
+
+# 独立的数据路径。留空则都放在 data_dir 下。可把工作树放到更快的盘，
+# 例如 Windows 上的 D:\ptc\worktrees。也可用环境变量或命令行覆盖：
+#   PTC_SEEDS_DIR / --seeds-dir
+#   PTC_WORKTREES_DIR / --worktrees-dir
+#   PTC_RUNS_DIR / --runs-dir
+#   PTC_DATA_DIR / --data-dir
+# storage:
+#   seeds_dir: ""        # 其下是 cas/ 和 packages/（种子与结果包）
+#   worktrees_dir: ""    # 每次运行物化出的工作树；清工作树不会删种子
+#   runs_dir: ""         # 运行记录和作业队列
+
+# 执行节点同时跑几个作业。默认 1，后来的作业排队。
+# exec:
+#   concurrency: 1
+
+# 允许其他受信任节点经协议远程清理本机种子 / 工作树 / 记录。默认关闭。
+# ptc clean 默认只作用于本机。
+# policy.remote_clean: false
