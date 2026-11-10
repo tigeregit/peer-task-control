@@ -95,7 +95,7 @@ docker compose -f docker/docker-compose.yml down -v
 | `ptc clean` | 本机清理结果包、运行记录、种子或工作树 |
 | `ptc resources` | 列出全网种子，查看大小 / 所在设备 / 中转次数，或下载（与看板共用接口；`--list-files` 可列出超大目录树的路径） |
 
-查询类能力与 WebUI 同源（同一套本机 `/api/v1` 和 `internal/query`）。策略变更、`submit`、`cancel`、`clean`、启动 daemon 等控制操作只在 CLI 里提供，看板保持只读。可选的 Ubuntu CUDA 节点见 `docker/docker-compose.cuda.yml`（官方 `nvidia/cuda:13.5.0-devel-ubuntu22.04`，不要写进默认 live compose）。
+查询类能力与 WebUI 同源（同一套本机 `/api/v1` 和 `internal/query`）。策略变更、`submit`、`cancel`、`clean`、启动 daemon 等控制操作只在 CLI 里提供，看板保持只读。可选的 Ubuntu CUDA 节点见 `docker/docker-compose.cuda.yml`（官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04`，不要写进默认 live compose）。
 
 ## 仓库约定
 

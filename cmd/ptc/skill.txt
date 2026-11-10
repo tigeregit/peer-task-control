@@ -77,7 +77,7 @@ ptc webui
 
 Storage paths (`storage.seeds_dir`, `storage.worktrees_dir`, `storage.runs_dir`) default under `data_dir` and can be overridden with `--seeds-dir` / `--worktrees-dir` / `--runs-dir` or `PTC_*_DIR`. Windows may put worktrees on a fast drive such as `D:\ptc\worktrees`.
 
-Optional Ubuntu CUDA node (official `nvidia/cuda:13.5.0-devel-ubuntu22.04`, GPU passthrough): `docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda`. The default live compose stays free of mocked GPUs. Native Windows GPU node: `docker/run-host-node.ps1`.
+Optional Ubuntu CUDA node (official `nvidia/cuda:12.9.2-devel-ubuntu22.04`, GPU passthrough): `docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda`. The default live compose stays free of mocked GPUs. Native Windows GPU node: `docker/run-host-node.ps1`.
 
 ## Not provided (do not call)
 

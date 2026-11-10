@@ -1,9 +1,10 @@
 # Official NVIDIA CUDA devel image plus the ptc Linux binary.
 # Build the binary on the host first:
 #   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o docker/ptc-linux ./cmd/ptc
-# Tag is a published Docker Hub tag (nvidia/cuda:13.5.0-devel-ubuntu22.04,
-# last pushed 2026-11-05), not an invented name. Needed for RTX 50-series (Blackwell).
-FROM nvidia/cuda:13.5.0-devel-ubuntu22.04
+# Published Docker Hub tag, not an invented name. 13.5.0-devel-ubuntu22.04
+# is also published, but the live host's driver (616.56) refused it
+# (nvidia-container-cli: cuda>=13.5). 12.9.2 works with an RTX 5070.
+FROM nvidia/cuda:12.9.2-devel-ubuntu22.04
 COPY docker/ptc-linux /usr/local/bin/ptc
 WORKDIR /data
 ENTRYPOINT ["ptc"]

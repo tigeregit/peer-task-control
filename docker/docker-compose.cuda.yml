@@ -9,7 +9,7 @@
 #
 # Requires NVIDIA Container Toolkit / Docker Desktop GPU support on the host
 # that already has the RTX GPU. Do not start this overlay if `docker run
-# --rm --gpus all nvidia/cuda:13.5.0-devel-ubuntu22.04 nvidia-smi` fails.
+# --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` fails.
 name: ptc-p0
 
 services:
