@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ptc</title>
+  <style>
+    :root {
+      --background: #ffffff;
+      --foreground: #171717;
+      --muted: #f5f5f5;
+      --muted-foreground: #737373;
+      --border: #e5e5e5;
+      --card: #ffffff;
+      --primary: #262626;
+      --primary-foreground: #fafafa;
+      --radius: 0.625rem;
+      --success: #1a7f37;
+      --failure: #cf222e;
+      --progress: #bf8700;
+      --queued: #8c959f;
+      --log-bg: #0d1117;
+      --log-fg: #e6edf3;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--background); color: var(--foreground); }
+    body {
+      font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+      min-height: 100vh;
+    }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; }
+    code, .mono { font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace; }
+    .app { display: flex; flex-direction: column; min-height: 100vh; }
+    header.top {
+      position: sticky; top: 0; z-index: 20;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--background) 90%, transparent);
+      backdrop-filter: blur(8px);
+    }
+    .top-inner, main, footer.foot-inner {
+      width: 100%; max-width: 80rem; margin: 0 auto; padding: 0 1.5rem;
+    }
+    .top-inner { display: flex; align-items: center; gap: 0.75rem; height: 3.5rem; }
+    .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; letter-spacing: -0.02em; }
+    .logo {
+      display: grid; place-items: center; width: 1.75rem; height: 1.75rem;
+      border-radius: 0.375rem; background: var(--primary); color: var(--primary-foreground);
+    }
+    nav.tabs { display: flex; align-items: center; gap: 0.25rem; margin-left: 0.25rem; }
+    nav.tabs a, .chip, .btn {
+      display: inline-flex; align-items: center; gap: 0.375rem;
+      border-radius: 0.375rem; padding: 0.35rem 0.65rem;
+      font-size: 0.875rem; color: var(--muted-foreground);
+      border: 0; background: transparent; cursor: pointer;
+    }
+    nav.tabs a:hover, .chip:hover, .btn:hover { background: var(--muted); color: var(--foreground); }
+    nav.tabs a.active, .chip.active { background: var(--muted); color: var(--foreground); }
+    .right { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+    .lang { display: inline-flex; border: 1px solid var(--border); border-radius: 0.375rem; overflow: hidden; }
+    .lang button {
+      border: 0; background: transparent; padding: 0.25rem 0.55rem;
+      font-size: 0.75rem; color: var(--muted-foreground); cursor: pointer;
+    }
+    .lang button.on { background: var(--muted); color: var(--foreground); font-weight: 600; }
+    .live { font-size: 0.75rem; color: var(--muted-foreground); }
+    .dot { width: 0.45rem; height: 0.45rem; border-radius: 99px; background: var(--success); display: inline-block; margin-right: 0.3rem; }
+    .dot.off { background: var(--failure); }
+    main { flex: 1; padding-top: 1.5rem; padding-bottom: 2rem; }
+    footer { border-top: 1px solid var(--border); padding: 1rem 0; text-align: center; font-size: 0.75rem; color: var(--muted-foreground); }
+    footer code { background: var(--muted); border-radius: 0.25rem; padding: 0.1rem 0.3rem; }
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .sub { margin: 0.25rem 0 0; font-size: 0.875rem; color: var(--muted-foreground); }
+    .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin: 1.5rem 0; }
+    @media (min-width: 1024px) { .stats { grid-template-columns: repeat(4, 1fr); } }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.75rem 1rem;
+    }
+    .card .lbl { font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground); }
+    .card .val { font-size: 1.5rem; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .card .hint { font-size: 0.75rem; color: var(--muted-foreground); }
+    .filters { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 1rem; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 1rem; }
+    .search { flex: 1; min-width: 12rem; border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.4rem 0.65rem; font: inherit; background: var(--card); color: var(--foreground); }
+    .sort { border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.4rem 0.5rem; font: inherit; background: var(--card); color: var(--foreground); }
+    .hint-count { font-size: 0.75rem; color: var(--muted-foreground); margin-left: auto; }
+    a.node { display: block; color: inherit; cursor: pointer; }
+    a.node:hover { background: color-mix(in srgb, var(--muted) 50%, transparent); }
+    a.node:hover h3 { text-decoration: underline; }
+    .list { display: flex; flex-direction: column; gap: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card); }
+    .row {
+      display: flex; gap: 0.75rem; align-items: flex-start;
+      padding: 0.65rem 0.85rem; border-top: 1px solid var(--border);
+      cursor: pointer; position: relative;
+    }
+    .row:first-child { border-top: 0; }
+    .row:hover { background: color-mix(in srgb, var(--muted) 40%, transparent); }
+    .row .meta { min-width: 0; flex: 1; }
+    .row .title { font-size: 0.875rem; font-weight: 500; }
+    .row:hover .title { text-decoration: underline; }
+    .row .line { margin-top: 0.2rem; font-size: 0.75rem; color: var(--muted-foreground); display: flex; flex-wrap: wrap; gap: 0.6rem; }
+    .row .dur { font-size: 0.75rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 0.15rem; }
+    .back { font-size: 0.875rem; color: var(--muted-foreground); display: inline-flex; gap: 0.25rem; margin-bottom: 1rem; }
+    .back:hover { color: var(--foreground); text-decoration: underline; }
+    .run-head { display: flex; align-items: flex-start; gap: 0.65rem; }
+    .run-head h1 { font-size: 1.35rem; }
+    .badge { display: inline-flex; align-items: center; border-radius: 0.25rem; background: var(--muted); padding: 0.1rem 0.4rem; font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted-foreground); }
+    .meta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1.25rem; margin: 1.1rem 0; }
+    @media (min-width: 800px) { .meta-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+    .meta-grid .k { font-size: 0.7rem; font-weight: 500; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
+    .meta-grid .v { font-size: 0.875rem; margin-top: 0.15rem; word-break: break-all; }
+    .summary { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; background: var(--card); margin: 0.5rem 0 1.25rem; }
+    .summary h2, .jobs h2 { margin: 0 0 0.6rem; font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted-foreground); }
+    .ann { font-size: 0.875rem; margin: 0.4rem 0 0; padding-left: 0.75rem; border-left: 3px solid var(--border); color: var(--foreground); }
+    .ann.error { border-color: var(--failure); }
+    .ann.warning { border-color: var(--progress); }
+    .ann.notice { border-color: var(--success); }
+    .jobs { margin-top: 0.5rem; }
+    .job { border: 1px solid var(--border); border-radius: 0.5rem; background: var(--card); margin-bottom: 0.6rem; overflow: hidden; }
+    .job-h { display: flex; align-items: center; gap: 0.55rem; width: 100%; text-align: left; padding: 0.7rem 0.85rem; border: 0; background: transparent; cursor: pointer; }
+    .job-row { display: flex; align-items: center; }
+    .job-row .job-h { flex: 1; min-width: 0; }
+    .job-row > .copy { margin-right: 0.7rem; }
+    .job-h:hover { background: color-mix(in srgb, var(--muted) 40%, transparent); }
+    .job-h .nm { flex: 1; font-size: 0.875rem; font-weight: 500; }
+    .job-h .tm { font-size: 0.75rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+    .steps { border-top: 1px solid var(--border); }
+    .step { padding: 0.55rem 0.85rem 0.55rem 2.4rem; display: flex; gap: 0.5rem; align-items: flex-start; }
+    .step.in_progress { background: color-mix(in srgb, #bf8700 8%, transparent); }
+    .step .nm { flex: 1; font-size: 0.8rem; }
+    .step .tm { font-size: 0.75rem; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+    .log { margin: 0.45rem 0 0.15rem; background: var(--log-bg); color: var(--log-fg); border-radius: 0.4rem; padding: 0.75rem 0.85rem; font-size: 0.75rem; white-space: pre-wrap; max-height: 20rem; overflow: auto; }
+    .empty { text-align: center; padding: 3rem 1.5rem; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted-foreground); }
+    .nodes { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 1.25rem; }
+    .node { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; background: var(--card); }
+    .node h3 { margin: 0 0 0.2rem; font-size: 0.95rem; }
+    .node .id { font-size: 0.75rem; color: var(--muted-foreground); word-break: break-all; }
+    .svcs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
+    .svc { font-size: 0.7rem; border-radius: 0.25rem; padding: 0.15rem 0.4rem; background: var(--muted); color: var(--muted-foreground); }
+    .svc.on { background: color-mix(in srgb, var(--success) 15%, white); color: var(--success); }
+    .svc.off { background: var(--muted); }
+    .icon { width: 1rem; height: 1rem; flex: none; display: inline-block; }
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .chev { width: 0.85rem; height: 0.85rem; color: var(--muted-foreground); transition: transform .15s; }
+    .job.open .chev { transform: rotate(90deg); }
+    a.seed { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .85em; word-break: break-all; }
+    table.res { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    table.res th, table.res td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid color-mix(in srgb, var(--muted-foreground) 18%, white); vertical-align: middle; }
+    table.res th { white-space: nowrap; font-weight: 600; }
+    table.res th .th { display: inline-flex; align-items: center; gap: 0.25rem; }
+    table.res tbody tr { cursor: pointer; }
+    table.res tbody tr:hover { background: var(--muted); }
+    .sorter { display: inline-flex; flex-direction: column; line-height: 0; }
+    .sorter button { border: 0; background: transparent; padding: 0; margin: 0; color: var(--muted-foreground); cursor: pointer; width: 0.85rem; height: 0.7rem; display: flex; align-items: center; justify-content: center; }
+    .sorter button:hover { color: var(--foreground); }
+    .sorter button.on { color: var(--foreground); }
+    .eye { border: 0; background: transparent; padding: 0; margin: 0; color: var(--muted-foreground); cursor: pointer; width: 1.15rem; height: 1.15rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 0.25rem; }
+    .eye:hover, .eye.on { color: var(--foreground); background: var(--muted); }
+    td.digest-cell { white-space: nowrap; font-variant-ligatures: none; }
+    .with-copy { display: inline-flex; align-items: center; gap: 0.15rem; min-width: 0; max-width: 100%; }
+    .with-copy .label { min-width: 0; }
+    .copy {
+      border: 0; background: transparent; color: var(--muted-foreground);
+      cursor: pointer; padding: 0; width: 1.1rem; height: 1.1rem; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 0.25rem; opacity: 0.55;
+    }
+    .copy:hover, .copy:focus, .copy.ok, .with-copy:hover .copy, .row:hover .copy, tr:hover .copy, h1 .copy, .sub .copy { opacity: 1; }
+    .copy:hover, .copy:focus { background: var(--muted); color: var(--foreground); }
+    .copy.ok { color: var(--success); }
+    .log-wrap { position: relative; }
+    .log-wrap .copy { position: absolute; top: 0.4rem; right: 0.4rem; opacity: 0.8; background: color-mix(in srgb, var(--log-bg) 80%, white); color: var(--log-fg); }
+    .log-wrap .log { padding-right: 1.8rem; }
+    .ftree-sec { }
+    .ftree-bar {
+      display: flex; align-items: center; gap: 0.4rem;
+      margin: 0.55rem 0 0.7rem; padding: 0.4rem 0.65rem;
+      border: 1px solid var(--border); border-radius: 0.4rem;
+      background: var(--muted); min-width: 0;
+    }
+    .ftree-bar .path {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: 0.75rem; color: var(--muted-foreground);
+    }
+    .ftree {
+      border: 1px solid var(--border); border-radius: 0.5rem; overflow: auto;
+      background: var(--card);
+    }
+    .ftree-row {
+      display: grid;
+      grid-template-columns: minmax(12rem, 1fr) minmax(8rem, 11rem) 5.2rem minmax(7rem, 12rem);
+      gap: 0.4rem; align-items: center;
+      min-height: 2rem; padding: 0 0.7rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, white);
+    }
+    .ftree-row:last-child { border-bottom: 0; }
+    .ftree-row.head {
+      position: sticky; top: 0; z-index: 1;
+      min-height: 1.85rem;
+      font-size: 0.7rem; font-weight: 600; letter-spacing: 0.02em;
+      color: var(--muted-foreground); text-transform: none;
+      background: color-mix(in srgb, var(--muted) 85%, white);
+      border-bottom: 1px solid var(--border);
+    }
+    .ftree-row:not(.head):hover { background: var(--muted); }
+    .ftree-name { display: flex; align-items: center; gap: 0.3rem; min-width: 0; padding-left: calc(var(--d, 0) * 1.1rem); }
+    .ftree-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem; }
+    .ftree-row:not(.head) .ftree-name .label { font-weight: 500; }
+    .ft-icon { width: 1.15rem; height: 1.15rem; flex: none; }
+    .ft-icon.folder { color: #d9a441; }
+    .ft-icon.file { color: #4b5563; }
+    .ft-chev-btn {
+      border: 0; background: transparent; padding: 0; margin: 0;
+      width: 0.95rem; height: 0.95rem; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--muted-foreground); cursor: pointer; border-radius: 0.2rem;
+    }
+    .ft-chev-btn:hover { color: var(--foreground); background: color-mix(in srgb, var(--foreground) 8%, transparent); }
+    .ft-chev { width: 0.75rem; height: 0.75rem; transition: transform .12s; }
+    .ft-chev.open { transform: rotate(90deg); }
+    .ft-chev-spacer { width: 0.95rem; height: 0.95rem; flex: none; }
+    .ftree-role { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; min-width: 0; }
+    .ftree-size { font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--muted-foreground); text-align: right; white-space: nowrap; }
+    .ftree-digest { font-size: 0.75rem; min-width: 0; display: flex; align-items: center; justify-content: flex-end; }
+    .ft-chip {
+      display: inline-flex; align-items: center; max-width: 100%;
+      font-size: 0.68rem; line-height: 1.2; padding: 0.08rem 0.38rem;
+      border-radius: 999px; background: var(--muted); color: var(--muted-foreground);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ft-chip.seed { background: color-mix(in srgb, #1f6feb 12%, white); color: #1f6feb; }
+    .ft-chip.output { background: color-mix(in srgb, var(--success) 14%, white); color: var(--success); }
+    .ft-chip.entry { background: color-mix(in srgb, var(--progress) 18%, white); color: #9a6700; }
+    .ftree-row .copy { opacity: 0; }
+    .ftree-row:hover .copy, .ftree-row .copy:focus, .ftree-row .copy.ok { opacity: 1; }
+    .ftree-row.hint { color: var(--muted-foreground); font-size: 0.78rem; }
+    .ftree-row.more { color: #1f6feb; cursor: pointer; }
+    .ftree-row.more:hover { background: var(--muted); }
+    @media (max-width: 700px) {
+      .ftree-row { grid-template-columns: minmax(8rem, 1fr) 5.2rem; }
+      .ftree-role, .ftree-digest, .ftree-row.head .ftree-role, .ftree-row.head .ftree-digest { display: none; }
+    }
+    a.btn { display: inline-block; margin-top: .75rem; padding: .4rem .9rem; border-radius: .4rem; background: #1f6feb; color: #fff; text-decoration: none; font-size: .85rem; }
+    a.btn:hover { opacity: .92; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    const I18N = {
+      zh: {
+        tasks: "任务", nodes: "节点", resources: "资源",
+        title: "任务",
+        sub: (n, live) => `${n} 个任务 · ${live} · 每 2 秒自动刷新`,
+        inProgress: "进行中", completed: "已完成", failed: "失败", queued: "排队中",
+        all: "全部", nodesCount: "节点",
+        empty: "还没有任务。",
+        allTasks: "全部任务",
+        summary: "摘要", jobs: "作业",
+        triggered: "触发方式", actor: "触发者", target: "目标", node: "节点", started: "开始", duration: "耗时",
+        currently: "正在运行",
+        justNow: "刚刚",
+        minutesAgo: (m) => `${m} 分钟前`,
+        hoursAgo: (h) => `${h} 小时前`,
+        sourceLive: "实时", sourceRecorded: "已记录",
+        event_schedule: "定时", event_workflow_dispatch: "手动触发", event_push: "推送",
+        status_success: "成功", status_failure: "失败", status_in_progress: "进行中",
+        status_queued: "排队中", status_cancelled: "已取消", status_skipped: "已跳过",
+        footer: "本机只读看板 · 接口",
+        nodesTitle: "节点",
+        nodesSub: "当前邻居目录中的节点及其服务",
+        noNodes: "目录还是空的。",
+        apiDown: "无法连接本机控制接口。",
+        resTitle: "资源",
+        resSub: (n, node) => `全网 ${n} 个种子 · 中转次数相对于当前设备 ${node}`,
+        noResources: "还没有发现种子。",
+        size: "大小",
+        locations: "所在设备",
+        hops: "中转次数",
+        via: "路径",
+        connected: "已连接",
+        download: "下载",
+        files: "文件",
+        kind: "类型",
+        replicas: "副本",
+        allResources: "全部资源",
+        hopsFrom: "中转次数相对于当前设备",
+        via_local: "本机",
+        via_direct: "直连",
+        via_relay: "中继",
+        yes: "是",
+        no: "否",
+        search: "搜索任务",
+        searchRes: "搜索种子",
+        sortBy: "排序",
+        sort_started_desc: "开始时间（新→旧）",
+        sort_started_asc: "开始时间（旧→新）",
+        sort_duration_desc: "耗时（长→短）",
+        sort_name_asc: "名称",
+        sort_status: "状态",
+        sort_node: "节点",
+        sort_size_desc: "大小（大→小）",
+        sort_hops_asc: "中转次数",
+        sort_replicas_desc: "副本数",
+        sort_kind: "类型",
+        sort_digest: "digest",
+        showing: (n, total) => `显示 ${n} / ${total}`,
+        kindAll: "全部类型",
+        kindTree: "目录树",
+        kindBlob: "文件",
+        hardware: "硬件信息",
+        history: "历史任务",
+        storage: "资源存储",
+        noTasksOnNode: "这个节点还没有公开的任务。",
+        noResOnNode: "这个节点还没有存储种子。",
+        allNodes: "全部节点",
+        osArch: "系统",
+        gpu: "GPU",
+        vram: "显存",
+        driver: "驱动",
+        addrs: "地址",
+        services: "服务",
+        noGPU: "无 GPU",
+        resNodes: "所在节点数",
+        created: "创建时间",
+        minHops: "最短中转",
+        showDigest: "显示完整 digest",
+        hideDigest: "隐藏 digest",
+        worktree: "工作树",
+        worktreeSub: "由 Prepare 合同渲染",
+        labels: "标记",
+        colName: "名称",
+        loadingFiles: "正在加载文件…",
+        loadFailed: "无法加载文件列表",
+        moreFiles: (n) => `再显示 ${n} 项`,
+        showAllFiles: (n) => `显示全部 ${n} 项`,
+        fileCount: (n) => `${n} 个文件`,
+        dirUnit: "以目录为单位",
+        dirUnitHint: (n) => `${n} 个文件 · 以目录为单位，不列出具体文件`,
+
+        writable: "可写",
+        readOnly: "只读",
+        seed: "种子",
+        output: "输出",
+        entrypoint: "入口",
+        permanent: "永久",
+        temporary: "临时",
+        copy: "复制",
+        copied: "已复制",
+        langNote: "时区 Asia/Shanghai（UTC+8）"
+      },
+      en: {
+        tasks: "Tasks", nodes: "Nodes", resources: "Resources",
+        title: "Tasks",
+        sub: (n, live) => `${n} tasks · ${live} · auto-refresh every 2s`,
+        inProgress: "In progress", completed: "Completed", failed: "Failed", queued: "Queued",
+        all: "All", nodesCount: "Nodes",
+        empty: "No tasks yet.",
+        allTasks: "All tasks",
+        summary: "Summary", jobs: "Jobs",
+        triggered: "Triggered via", actor: "Actor", target: "Target", node: "Node", started: "Started", duration: "Duration",
+        currently: "currently running",
+        justNow: "just now",
+        minutesAgo: (m) => `${m}m ago`,
+        hoursAgo: (h) => `${h}h ago`,
+        sourceLive: "live", sourceRecorded: "recorded",
+        event_schedule: "schedule", event_workflow_dispatch: "workflow_dispatch", event_push: "push",
+        status_success: "Success", status_failure: "Failure", status_in_progress: "In progress",
+        status_queued: "Queued", status_cancelled: "Cancelled", status_skipped: "Skipped",
+        footer: "Read-only local board · API",
+        nodesTitle: "Nodes",
+        nodesSub: "Nodes in the current neighbor catalog and the services they offer",
+        noNodes: "The catalog is still empty.",
+        apiDown: "The local control API could not be reached.",
+        resTitle: "Resources",
+        resSub: (n, node) => `${n} seed(s) on the mesh · hop counts from this device (${node})`,
+        noResources: "No seeds found yet.",
+        size: "Size",
+        locations: "Locations",
+        hops: "Hops",
+        via: "Path",
+        connected: "Connected",
+        download: "Download",
+        files: "Files",
+        kind: "Kind",
+        replicas: "Replicas",
+        allResources: "All resources",
+        hopsFrom: "Hop counts are from this device",
+        via_local: "local",
+        via_direct: "direct",
+        via_relay: "relay",
+        yes: "yes",
+        no: "no",
+        search: "Search tasks",
+        searchRes: "Search seeds",
+        sortBy: "Sort",
+        sort_started_desc: "Started (newest)",
+        sort_started_asc: "Started (oldest)",
+        sort_duration_desc: "Duration (long–short)",
+        sort_name_asc: "Name",
+        sort_status: "Status",
+        sort_node: "Node",
+        sort_size_desc: "Size (large–small)",
+        sort_hops_asc: "Hops",
+        sort_replicas_desc: "Replicas",
+        sort_kind: "Kind",
+        sort_digest: "digest",
+        showing: (n, total) => `Showing ${n} of ${total}`,
+        kindAll: "All kinds",
+        kindTree: "Trees",
+        kindBlob: "Blobs",
+        hardware: "Hardware",
+        history: "Task history",
+        storage: "Stored resources",
+        noTasksOnNode: "This node has no published tasks.",
+        noResOnNode: "This node is not storing any seeds.",
+        allNodes: "All nodes",
+        osArch: "OS",
+        gpu: "GPU",
+        vram: "VRAM",
+        driver: "Driver",
+        addrs: "Addresses",
+        services: "Services",
+        noGPU: "No GPU",
+        resNodes: "Nodes",
+        created: "Created",
+        minHops: "Min hops",
+        showDigest: "Show full digest",
+        hideDigest: "Hide digest",
+        worktree: "Worktree",
+        worktreeSub: "Rendered from the Prepare contract",
+        labels: "Labels",
+        colName: "Name",
+        loadingFiles: "Loading files…",
+        loadFailed: "Couldn't load the file list",
+        moreFiles: (n) => `Show ${n} more`,
+        showAllFiles: (n) => `Show all ${n}`,
+        fileCount: (n) => `${n} files`,
+        dirUnit: "directory unit",
+        dirUnitHint: (n) => `${n} files · directory unit, files are not listed`,
+
+        writable: "writable",
+        readOnly: "read-only",
+        seed: "seed",
+        output: "output",
+        entrypoint: "entrypoint",
+        permanent: "permanent",
+        temporary: "temporary",
+        copy: "Copy",
+        copied: "Copied",
+        langNote: "times in Asia/Shanghai (UTC+8)"
+      }
+    };
+
+    let lang = localStorage.getItem("ptc-lang") || ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+    let filter = "all";
+    let taskQuery = "";
+    let taskSort = "started-desc";
+    let resQuery = "";
+    let resKind = "all";
+    let resSort = "name-asc";
+    let digestOpen = false;
+    let tasksBoard = { tasks: [], generated_at: null, version: "" };
+    let status = null;
+    let statusErr = null;
+    let openJobs = {};
+    let openFolders = {};
+    let seedContents = {};
+    let folderLimit = {};
+    let resourcesBoard = { seeds: [], viewer: "", peer_id: "" };
+
+    const t = () => I18N[lang];
+    const tx = (v) => {
+      if (v == null) return "";
+      if (typeof v === "string") return v;
+      return v[lang] || v.zh || v.en || "";
+    };
+
+    function setLang(next) {
+      lang = next;
+      localStorage.setItem("ptc-lang", lang);
+      document.documentElement.lang = lang === "zh" ? "zh-Hans" : "en";
+      render();
+    }
+
+    function icon(status) {
+      const s = status || "queued";
+      if (s === "success") return `<svg class="icon" viewBox="0 0 16 16" fill="#1a7f37"><path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.75.75 0 0 0-1.06 1.06l2 2a.75.75 0 0 0 1.06 0l4.5-4.5Z"/></svg>`;
+      if (s === "failure") return `<svg class="icon" viewBox="0 0 16 16" fill="#cf222e"><path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16ZM5.78 5.22a.75.75 0 0 0-1.06 1.06L6.94 8.5 4.72 10.72a.75.75 0 0 0 1.06 1.06L8 9.56l2.22 2.22a.75.75 0 0 0 1.06-1.06L9.06 8.5l2.22-2.22a.75.75 0 0 0-1.06-1.06L8 7.44 5.78 5.22Z"/></svg>`;
+      if (s === "in_progress") return `<svg class="icon spin" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#bf8700" stroke-width="2" stroke-dasharray="10 6" stroke-linecap="round"/></svg>`;
+      if (s === "cancelled" || s === "skipped") return `<svg class="icon" viewBox="0 0 16 16" fill="#8c959f"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0Zm3.28 5.22a.75.75 0 0 0-1.06 0L8 7.44 5.78 5.22a.75.75 0 0 0-1.06 1.06L6.94 8.5 4.72 10.72a.75.75 0 1 0 1.06 1.06L8 9.56l2.22 2.22a.75.75 0 0 0 1.06-1.06L9.06 8.5l2.22-2.22a.75.75 0 0 0 0-1.06Z"/></svg>`;
+      return `<svg class="icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="#8c959f" stroke-width="1.5"/></svg>`;
+    }
+
+    const TZ = "Asia/Shanghai";
+    function fmtDate(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      return d.toLocaleString(lang === "zh" ? "zh-CN" : "en-US", { timeZone: TZ, month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+    function relTime(iso) {
+      if (!iso) return "—";
+      const s = (Date.now() - new Date(iso).getTime()) / 1000;
+      if (s < 45) return t().justNow;
+      if (s < 3600) return t().minutesAgo(Math.round(s / 60));
+      if (s < 86400) return t().hoursAgo(Math.round(s / 3600));
+      return fmtDate(iso);
+    }
+    function dur(a, b, running) {
+      if (!a) return "—";
+      const end = b ? new Date(b).getTime() : Date.now();
+      let ms = Math.max(0, end - new Date(a).getTime());
+      const sec = Math.round(ms / 1000);
+      if (sec < 60) return sec + "s";
+      const m = Math.floor(sec / 60), r = sec % 60;
+      if (m < 60) return r ? `${m}m ${r}s` : `${m}m`;
+      const h = Math.floor(m / 60);
+      return (m % 60) ? `${h}h ${m % 60}m` : `${h}h`;
+    }
+    function eventLabel(ev) { return t()["event_" + ev] || ev || "—"; }
+    function statusLabel(s) { return t()["status_" + s] || s || "—"; }
+
+    function route() {
+      const h = (location.hash || "#/").replace(/^#/, "") || "/";
+      const parts = h.split("/").filter(Boolean);
+      if (parts[0] === "nodes") {
+        if (parts[1]) return { page: "node", id: decodeURIComponent(parts.slice(1).join("/")) };
+        return { page: "nodes" };
+      }
+      if (parts[0] === "resources") {
+        if (parts[1] === "sha256" && parts[2]) return { page: "resource", digest: "sha256:" + parts[2].toLowerCase() };
+        if (parts[1]) return { page: "resource", digest: decodeURIComponent(parts[1]).toLowerCase() };
+        return { page: "resources" };
+      }
+      if (parts[0] === "tasks" && parts[1]) return { page: "task", id: decodeURIComponent(parts[1]) };
+      return { page: "tasks" };
+    }
+
+    function counts() {
+      const tasks = tasksBoard.tasks || [];
+      return {
+        total: tasks.length,
+        in_progress: tasks.filter(x => x.status === "in_progress").length,
+        success: tasks.filter(x => x.status === "success").length,
+        failure: tasks.filter(x => x.status === "failure").length,
+        queued: tasks.filter(x => x.status === "queued").length,
+        nodes: nodeList().length
+      };
+    }
+
+    function matchNode(name, peerId, want) {
+      want = String(want || "").trim().toLowerCase();
+      if (!want) return true;
+      if (String(name || "").toLowerCase() === want) return true;
+      const id = String(peerId || "").toLowerCase();
+      return id === want || (want.length >= 8 && id.startsWith(want));
+    }
+    function matchTaskStatus(status, want) {
+      if (!want || want === "all") return true;
+      if (want === "in_progress") return status === "in_progress" || status === "queued";
+      if (want === "completed") return status === "success" || status === "cancelled" || status === "skipped";
+      if (want === "failed") return status === "failure";
+      return status === want;
+    }
+    function taskHay(task) {
+      return [task.id, tx(task.name), task.status, task.event, task.actor, task.target, task.node, task.peer_id, tx(task.summary)].join(" ").toLowerCase();
+    }
+    function taskDurationMs(task) {
+      if (!task.started_at) return -1;
+      const end = task.ended_at ? new Date(task.ended_at).getTime() : Date.now();
+      return Math.max(0, end - new Date(task.started_at).getTime());
+    }
+    function startedMs(task) {
+      return task.started_at ? new Date(task.started_at).getTime() : 0;
+    }
+    function sortTasksList(tasks, key) {
+      const list = tasks.slice();
+      const [field, order] = (key || "started-desc").split("-");
+      const desc = order === "desc" || (!order && (field === "started" || field === "duration"));
+      list.sort((a, b) => {
+        let c = 0;
+        if (field === "name") c = tx(a.name).toLowerCase().localeCompare(tx(b.name).toLowerCase());
+        else if (field === "status") c = String(a.status||"").localeCompare(String(b.status||""));
+        else if (field === "node") c = String(a.node||"").toLowerCase().localeCompare(String(b.node||"").toLowerCase());
+        else if (field === "duration") c = taskDurationMs(a) - taskDurationMs(b);
+        else c = startedMs(a) - startedMs(b);
+        return desc ? -c : c;
+      });
+      return list;
+    }
+    function filtered() {
+      let tasks = (tasksBoard.tasks || []).filter(x => matchTaskStatus(x.status, filter));
+      const q = (taskQuery || "").trim().toLowerCase();
+      if (q) tasks = tasks.filter(x => taskHay(x).includes(q));
+      return sortTasksList(tasks, taskSort);
+    }
+    function setTaskQuery(v) { taskQuery = v; render(); }
+    function setTaskSort(v) { taskSort = v; render(); }
+    function setResQuery(v) { resQuery = v; render(); }
+    function setResSort(v) { resSort = v; render(); }
+    function setResColSort(field, order) { resSort = field + "-" + order; render(); }
+    function toggleDigest() { digestOpen = !digestOpen; render(); }
+    function digestHex(d) {
+      return String(d || "").replace(/^sha256:/i, "");
+    }
+    function maskDigest(d) {
+      const h = digestHex(d);
+      return (h.slice(0, 8) || "") + "***";
+    }
+    function displayDigest(d) { return digestOpen ? digestHex(d) : maskDigest(d); }
+    function colSort(field) {
+      const [cur, order] = (resSort || "").split("-");
+      const upOn = cur === field && order === "asc" ? "on" : "";
+      const downOn = cur === field && order === "desc" ? "on" : "";
+      return `<span class="sorter">
+        <button type="button" class="${upOn}" title="↑" onclick="event.stopPropagation(); setResColSort('${field}','asc')">
+          <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor" aria-hidden="true"><path d="M4 0 L8 6 H0 Z"/></svg>
+        </button>
+        <button type="button" class="${downOn}" title="↓" onclick="event.stopPropagation(); setResColSort('${field}','desc')">
+          <svg width="8" height="6" viewBox="0 0 8 6" fill="currentColor" aria-hidden="true"><path d="M4 6 L0 0 H8 Z"/></svg>
+        </button>
+      </span>`;
+    }
+    function eyeBtn() {
+      const i = t();
+      const title = digestOpen ? i.hideDigest : i.showDigest;
+      const icon = digestOpen
+        ? `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8S3.7 3.5 8 3.5 14.5 8 14.5 8 12.3 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2.2"/></svg>`
+        : `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8S3.7 3.5 8 3.5 14.5 8 14.5 8 12.3 12.5 8 12.5 1.5 8 1.5 8Z"/><circle cx="8" cy="8" r="2.2"/><path d="M3 13 L13 3"/></svg>`;
+      return `<button type="button" class="eye ${digestOpen?"on":""}" title="${esc(title)}" onclick="event.stopPropagation(); toggleDigest()">${icon}</button>`;
+    }
+    function setResKind(v) { resKind = v; render(); }
+    function nodeHref(n) {
+      const id = (typeof n === "string") ? n : (n && (n.name || n.peer_id));
+      if (!id) return "#/nodes";
+      return "#/nodes/" + encodeURIComponent(id);
+    }
+    function nodeLink(name, peer) {
+      const id = name || peer;
+      if (!id) return "—";
+      return `<a href="${nodeHref(id)}" onclick="event.stopPropagation()">${esc(name || id)}</a>`;
+    }
+    function findNode(id) {
+      return nodeList().find(n => matchNode(n.name, n.peer_id, id));
+    }
+    function tasksForNode(n) {
+      if (!n) return [];
+      return sortTasksList((tasksBoard.tasks || []).filter(x => matchNode(x.node, x.peer_id, n.name || n.peer_id)), "started-desc");
+    }
+    function seedsForNode(n) {
+      if (!n) return [];
+      return (resourcesBoard.seeds || []).filter(s => (s.locations || []).some(l => matchNode(l.node, l.peer_id, n.name || n.peer_id)));
+    }
+    function resourceHay(s) {
+      const bits = [s.digest, s.name, s.kind];
+      (s.files || []).forEach(f => { bits.push(f.path, f.digest); });
+      (s.locations || []).forEach(l => { bits.push(l.node, l.peer_id); });
+      return bits.join(" ").toLowerCase();
+    }
+    function minHops(s) {
+      const locs = s.locations || [];
+      if (!locs.length) return 1e9;
+      return Math.min(...locs.map(l => Number(l.hops) || 0));
+    }
+    function filteredResources() {
+      let seeds = resourcesBoard.seeds || [];
+      if (resKind && resKind !== "all") seeds = seeds.filter(s => (s.kind || "") === resKind);
+      const q = (resQuery || "").trim().toLowerCase();
+      if (q) seeds = seeds.filter(s => resourceHay(s).includes(q));
+      const [field, order] = (resSort || "name-asc").split("-");
+      const desc = order === "desc" || (!order && (field === "size" || field === "replicas" || field === "created" || field === "nodes"));
+      seeds = seeds.slice().sort((a, b) => {
+        let c = 0;
+        if (field === "size") c = (a.size||0) - (b.size||0);
+        else if (field === "kind") c = String(a.kind||"").localeCompare(String(b.kind||""));
+        else if (field === "hops") c = minHops(a) - minHops(b);
+        else if (field === "replicas") c = (a.locations||[]).length - (b.locations||[]).length;
+        else if (field === "digest") c = String(a.digest||"").localeCompare(String(b.digest||""));
+        else if (field === "created") {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          c = ta - tb;
+        }
+        else if (field === "nodes" || field === "replicas") c = (a.locations||[]).length - (b.locations||[]).length;
+        else {
+          c = String(a.name||"").toLowerCase().localeCompare(String(b.name||"").toLowerCase());
+          if (c === 0) c = String(a.digest||"").localeCompare(String(b.digest||""));
+        }
+        return desc ? -c : c;
+      });
+      return seeds;
+    }
+
+    function header(active) {
+      const i = t();
+      return `<header class="top"><div class="top-inner">
+        <a class="brand" href="#/">
+          <span class="logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 9l-3 3 3 3M11 15h5"/></svg></span>
+          <span>ptc</span>
+        </a>
+        <nav class="tabs">
+          <a href="#/" class="${active==="tasks"?"active":""}">${i.tasks}</a>
+          <a href="#/resources" class="${active==="resources"?"active":""}">${i.resources}</a>
+          <a href="#/nodes" class="${active==="nodes"?"active":""}">${i.nodes}</a>
+        </nav>
+        <div class="right">
+          <span class="live"><span class="dot ${statusErr?"off":""}"></span>${statusErr ? i.apiDown : (tasksBoard.version || "")}</span>
+          <div class="lang">
+            <button class="${lang==="zh"?"on":""}" onclick="setLang('zh')">中文</button>
+            <button class="${lang==="en"?"on":""}" onclick="setLang('en')">EN</button>
+          </div>
+        </div>
+      </div></header>`;
+    }
+    function footer() {
+      return `<footer><div class="foot-inner">${t().footer} <code>/live/tasks</code> · <code>/live/resources</code> · ${t().langNote}</div></footer>`;
+    }
+
+    function renderTasks() {
+      const i = t();
+      const c = counts();
+      const live = statusErr ? i.apiDown : relTime(tasksBoard.generated_at);
+      const list = filtered();
+      return `${header("tasks")}<main>
+        <h1>${i.title}</h1>
+        <p class="sub">${i.sub(c.total, live)}</p>
+        <div class="stats">
+          <div class="card"><div class="lbl">${i.inProgress}</div><div class="val">${c.in_progress}</div><div class="hint">${c.queued} ${i.queued}</div></div>
+          <div class="card"><div class="lbl">${i.completed}</div><div class="val">${c.success}</div><div class="hint">${i.status_success}</div></div>
+          <div class="card"><div class="lbl">${i.failed}</div><div class="val">${c.failure}</div></div>
+          <div class="card"><div class="lbl">${i.nodesCount}</div><div class="val">${c.nodes}</div></div>
+        </div>
+        <div class="toolbar">
+          <input id="q" class="search" type="search" value="${esc(taskQuery)}" placeholder="${esc(i.search)}" oninput="setTaskQuery(this.value)" autocomplete="off">
+          <select id="sort" class="sort" onchange="setTaskSort(this.value)" title="${esc(i.sortBy)}">
+            <option value="started-desc" ${taskSort==="started-desc"?"selected":""}>${i.sort_started_desc}</option>
+            <option value="started-asc" ${taskSort==="started-asc"?"selected":""}>${i.sort_started_asc}</option>
+            <option value="duration-desc" ${taskSort==="duration-desc"?"selected":""}>${i.sort_duration_desc}</option>
+            <option value="name-asc" ${taskSort==="name-asc"?"selected":""}>${i.sort_name_asc}</option>
+            <option value="status-asc" ${taskSort==="status-asc"?"selected":""}>${i.sort_status}</option>
+            <option value="node-asc" ${taskSort==="node-asc"?"selected":""}>${i.sort_node}</option>
+          </select>
+          ${list.length !== c.total ? `<span class="hint-count">${i.showing(list.length, c.total)}</span>` : ""}
+        </div>
+        <div class="filters">
+          <button class="chip ${filter==="all"?"active":""}" onclick="setFilter('all')">${i.all}</button>
+          <button class="chip ${filter==="in_progress"?"active":""}" onclick="setFilter('in_progress')">${i.inProgress}</button>
+          <button class="chip ${filter==="completed"?"active":""}" onclick="setFilter('completed')">${i.completed}</button>
+          <button class="chip ${filter==="failed"?"active":""}" onclick="setFilter('failed')">${i.failed}</button>
+        </div>
+        ${list.length ? `<div class="list">${list.map(rowHTML).join("")}</div>` : `<div class="empty">${i.empty}</div>`}
+      </main>${footer()}`;
+    }
+
+
+    function copyGlyph(ok) {
+      if (ok) return `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.4 11.2 3.2 8l1.1-1.1 2.1 2.1 5.3-5.3L12.8 5 6.4 11.2Z"/></svg>`;
+      return `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4 2.75A1.75 1.75 0 0 1 5.75 1h6.5A1.75 1.75 0 0 1 14 2.75v6.5A1.75 1.75 0 0 1 12.25 11H11v1.25A1.75 1.75 0 0 1 9.25 14h-6.5A1.75 1.75 0 0 1 1 12.25v-6.5A1.75 1.75 0 0 1 2.75 4H4V2.75Zm1.5 0v1.25h5.75c.69 0 1.25.56 1.25 1.25v4.5h.75a.25.25 0 0 0 .25-.25v-6.5a.25.25 0 0 0-.25-.25h-6.5a.25.25 0 0 0-.25.25Zm-3 2.5a.25.25 0 0 0-.25.25v6.5c0 .138.112.25.25.25h6.5a.25.25 0 0 0 .25-.25v-6.5a.25.25 0 0 0-.25-.25h-6.5Z"/></svg>`;
+    }
+    function copyBtn(text) {
+      text = text == null ? "" : String(text);
+      if (!text || text === "—") return "";
+      return `<button type="button" class="copy" title="${esc(t().copy)}" data-copy="${escAttr(text)}" onclick="event.stopPropagation(); copyFrom(this)">${copyGlyph(false)}</button>`;
+    }
+    function withCopy(text, inner) {
+      if (text == null || text === "" || text === "—") return inner || "—";
+      return `<span class="with-copy">${inner}${copyBtn(text)}</span>`;
+    }
+    function fallbackCopy(text) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch (_) {}
+      document.body.removeChild(ta);
+    }
+    function copyFrom(btn) {
+      const text = btn.getAttribute("data-copy") || "";
+      const done = () => {
+        btn.classList.add("ok");
+        btn.title = t().copied;
+        btn.innerHTML = copyGlyph(true);
+        clearTimeout(btn._copyTimer);
+        btn._copyTimer = setTimeout(() => {
+          btn.classList.remove("ok");
+          btn.title = t().copy;
+          btn.innerHTML = copyGlyph(false);
+        }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(() => { fallbackCopy(text); done(); });
+      } else {
+        fallbackCopy(text);
+        done();
+      }
+    }
+    function rowHTML(task) {
+      const i = t();
+      const src = task.source === "live" ? i.sourceLive : (task.source ? i.sourceRecorded : "");
+      return `<div class="row" onclick="location.hash='#/tasks/${encodeURIComponent(task.id)}'">
+        ${icon(task.status)}
+        <div class="meta">
+          <div class="title">${withCopy(tx(task.name), esc(tx(task.name)))}</div>
+          <div class="line">
+            ${task.id ? `<span class="mono">${withCopy(task.id, esc(task.id))}</span>` : ""}
+            <span>${statusLabel(task.status)}</span>
+            <span>${eventLabel(task.event)}</span>
+            ${task.node ? `<span>${withCopy(task.node, nodeLink(task.node, task.peer_id))}</span>` : (task.target ? `<span>${withCopy(task.target, esc(task.target))}</span>` : "")}
+            ${src ? `<span class="badge">${src}</span>` : ""}
+            <span>${relTime(task.ended_at || task.started_at)}</span>
+          </div>
+        </div>
+        <div class="dur">${dur(task.started_at, task.ended_at, task.status==="in_progress")}</div>
+      </div>`;
+    }
+
+    function renderTask(id) {
+      const i = t();
+      const task = (tasksBoard.tasks || []).find(x => x.id === id);
+      if (!task) return `${header("tasks")}<main><a class="back" href="#/">← ${i.allTasks}</a><div class="empty">${i.empty}</div></main>${footer()}`;
+      const jobs = task.jobs || [];
+      return `${header("tasks")}<main>
+        <a class="back" href="#/">← ${i.allTasks}</a>
+        <div class="run-head">${icon(task.status)}<div>
+          <div style="display:flex;gap:.4rem;align-items:center;margin-bottom:.25rem">
+            <span class="badge">${statusLabel(task.status)}</span>
+            ${task.source === "live" ? `<span class="badge">${i.sourceLive}</span>` : `<span class="badge">${i.sourceRecorded}</span>`}
+            ${task.status === "in_progress" ? `<span class="sub" style="margin:0">${i.currently}</span>` : ""}
+          </div>
+          <h1>${withCopy(tx(task.name), esc(tx(task.name)))}</h1>
+          ${task.id ? `<p class="sub mono" style="margin:.25rem 0 0">${withCopy(task.id, esc(task.id))}</p>` : ""}
+        </div></div>
+        <div class="meta-grid">
+          <div><div class="k">${i.triggered}</div><div class="v">${withCopy(task.event || eventLabel(task.event), eventLabel(task.event))}</div></div>
+          <div><div class="k">${i.actor}</div><div class="v">${withCopy(task.actor, esc(task.actor || "—"))}</div></div>
+          <div><div class="k">${i.target}</div><div class="v">${withCopy(task.target, esc(task.target || "—"))}</div></div>
+          <div><div class="k">${i.node}</div><div class="v">${task.node ? withCopy(task.node, nodeLink(task.node, task.peer_id)) : "—"}</div></div>
+          <div><div class="k">${i.started}</div><div class="v">${withCopy(task.started_at, fmtDate(task.started_at))}</div></div>
+          <div><div class="k">${i.duration}</div><div class="v">${withCopy(dur(task.started_at, task.ended_at, task.status==="in_progress"), dur(task.started_at, task.ended_at, task.status==="in_progress"))}</div></div>
+        </div>
+        ${worktreeHTML(task.worktree)}
+        <section class="summary">
+          <h2>${i.summary}${copyBtn(tx(task.summary))}</h2>
+          <p style="margin:0;font-size:.9rem">${linkSeeds(tx(task.summary)) || "—"}</p>
+          ${(task.annotations||[]).map(a => `<p class="ann ${esc(a.level||"notice")}">${linkSeeds(tx(a.message))}</p>`).join("")}
+        </section>
+        <section class="jobs">
+          <h2>${i.jobs}</h2>
+          ${jobs.map(j => jobHTML(task.id, j)).join("")}
+        </section>
+      </main>${footer()}`;
+    }
+
+    function isOpen(taskId, job) {
+      const key = taskId + ":" + (job.id || tx(job.name));
+      if (openJobs[key] === undefined) {
+        return job.status === "in_progress" || job.status === "failure";
+      }
+      return openJobs[key];
+    }
+    function toggleJob(taskId, jobId) {
+      const task = (tasksBoard.tasks || []).find(x => x.id === taskId);
+      const job = ((task && task.jobs) || []).find(j => (j.id || tx(j.name)) === jobId) || {id: jobId, status: ""};
+      openJobs[taskId + ":" + jobId] = !isOpen(taskId, job);
+      render();
+    }
+    function setFilter(f) { filter = f; render(); }
+    function jobHTML(taskId, job) {
+      const open = isOpen(taskId, job);
+      const jobId = job.id || tx(job.name);
+      const running = (job.steps||[]).some(s => s.status === "in_progress");
+      return `<div class="job ${open?"open":""}">
+        <div class="job-row">
+        <button class="job-h" onclick="toggleJob('${escAttr(taskId)}','${escAttr(jobId)}')">
+          <svg class="chev" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>
+          ${icon(job.status)}
+          <span class="nm">${esc(tx(job.name))}${running ? ` · ${t().currently}` : ""}</span>
+          <span class="tm">${dur(job.started_at, job.ended_at, job.status==="in_progress")}</span>
+        </button>
+        ${copyBtn(tx(job.name))}
+        </div>
+        ${open ? `<div class="steps">${(job.steps||[]).map(stepHTML).join("")}</div>` : ""}
+      </div>`;
+    }
+    function stepHTML(step) {
+      return `<div class="step ${step.status}">
+        ${icon(step.status)}
+        <div class="nm">${withCopy(tx(step.name), esc(tx(step.name)))}${step.status==="in_progress" ? ` · ${t().currently}` : ""}
+          ${step.log ? `<div class="log-wrap">${copyBtn(step.log)}<div class="log mono">${linkSeeds(step.log)}</div></div>` : ""}
+        </div>
+        <div class="tm">${dur(step.started_at, step.ended_at, step.status==="in_progress")}</div>
+      </div>`;
+    }
+
+    function nodeList() {
+      const peers = (status && status.peers) || [];
+      const haveSelf = status && status.peer_id && peers.some(p => p.peer_id === status.peer_id);
+      const list = peers.slice();
+      if (status && status.peer_id && !haveSelf) {
+        list.unshift({ name: status.name, peer_id: status.peer_id, addrs: status.listen, services: {}, caps: {} });
+      }
+      return list;
+    }
+    function renderNodes() {
+      const i = t();
+      const list = nodeList();
+      return `${header("nodes")}<main>
+        <h1>${i.nodesTitle}</h1>
+        <p class="sub">${i.nodesSub}</p>
+        ${statusErr ? `<div class="empty">${i.apiDown}</div>` : (list.length ? `<div class="nodes">${list.map(nodeHTML).join("")}</div>` : `<div class="empty">${i.noNodes}</div>`)}
+      </main>${footer()}`;
+    }
+    function serviceChips(n) {
+      const svcs = n.services || {};
+      return ["exec","files","relay"].map(k => {
+        const s = svcs[k] || {};
+        const on = !!s.enabled;
+        const label = on ? k : (s.offered ? k + " off" : k + " no");
+        return `<span class="svc ${on?"on":"off"}">${label}</span>`;
+      }).join("");
+    }
+    function nodeHTML(n) {
+      const caps = n.caps || {};
+      const gpu = caps.nvidia ? `${caps.gpu_name || "NVIDIA"} ${caps.vram_mib||""} MiB` : (caps.os ? `${caps.os}/${caps.arch}` : "");
+      const addrText = (n.addrs||[]).join("\n");
+      return `<div class="node" onclick="location.hash='${escAttr(nodeHref(n))}'">
+        <h3>${withCopy(n.name || n.peer_id, esc(n.name || n.peer_id))}</h3>
+        <div class="id mono">${withCopy(n.peer_id, esc(n.peer_id || ""))}</div>
+        <div class="id">${withCopy(addrText, esc((n.addrs||[]).join(" · ")))}</div>
+        <div class="svcs">${serviceChips(n)}${gpu ? `<span class="svc">${esc(gpu)}</span>` : ""}</div>
+      </div>`;
+    }
+    function renderNode(id) {
+      const i = t();
+      const n = findNode(id);
+      if (!n) return `${header("nodes")}<main><a class="back" href="#/nodes">← ${i.allNodes}</a><div class="empty">${i.noNodes}</div></main>${footer()}`;
+      const caps = n.caps || {};
+      const tasks = tasksForNode(n);
+      const seeds = seedsForNode(n);
+      const gpu = caps.nvidia || caps.gpu_name ? (caps.gpu_name || "NVIDIA") : i.noGPU;
+      const vram = caps.vram_mib ? caps.vram_mib + " MiB" : "—";
+      const seedRows = seeds.map(s => {
+        const loc = (s.locations || []).find(l => matchNode(l.node, l.peer_id, n.name || n.peer_id)) || {};
+        return `<tr onclick="location.hash='${seedHref(s.digest)}'">
+          <td class="mono">${withCopy(s.digest, `<a class="seed" href="${seedHref(s.digest)}">${esc(displayDigest(s.digest))}</a>`)}</td>
+          <td>${withCopy(s.name, esc(s.name || "—"))}</td>
+          <td>${esc(s.kind || "")}</td>
+          <td>${humanBytes(s.size)}</td>
+          <td>${loc.hops == null ? "—" : loc.hops}</td>
+        </tr>`;
+      }).join("");
+      return `${header("nodes")}<main>
+        <a class="back" href="#/nodes">← ${i.allNodes}</a>
+        <h1>${withCopy(n.name || n.peer_id, esc(n.name || n.peer_id))}</h1>
+        <p class="sub mono">${withCopy(n.peer_id, esc(n.peer_id || ""))}</p>
+        <section class="summary">
+          <h2>${i.hardware}</h2>
+          <div class="meta-grid">
+            <div><div class="k">${i.osArch}</div><div class="v">${withCopy((caps.os || "") && (caps.arch || "") ? caps.os + "/" + caps.arch : "", esc((caps.os || "—") + "/" + (caps.arch || "—")))}</div></div>
+            <div><div class="k">${i.gpu}</div><div class="v">${withCopy(caps.nvidia || caps.gpu_name ? gpu : "", esc(gpu))}</div></div>
+            <div><div class="k">${i.vram}</div><div class="v">${withCopy(caps.vram_mib ? String(caps.vram_mib) + " MiB" : "", esc(vram))}</div></div>
+            <div><div class="k">${i.driver}</div><div class="v">${withCopy(caps.driver, esc(caps.driver || "—"))}</div></div>
+            <div><div class="k">${i.addrs}</div><div class="v">${withCopy((n.addrs||[]).join("\n"), esc((n.addrs||[]).join(" · ") || "—"))}</div></div>
+            <div><div class="k">${i.services}</div><div class="v"><div class="svcs">${serviceChips(n)}</div></div></div>
+          </div>
+        </section>
+        <section class="jobs">
+          <h2>${i.history} · ${tasks.length}</h2>
+          ${tasks.length ? `<div class="list">${tasks.map(rowHTML).join("")}</div>` : `<div class="empty">${i.noTasksOnNode}</div>`}
+        </section>
+        <section class="summary">
+          <h2>${i.storage} · ${seeds.length}</h2>
+          ${seeds.length ? `<table class="res"><thead><tr>
+            <th>digest</th><th>${lang==="zh"?"名称":"Name"}</th><th>${i.kind}</th><th>${i.size}</th><th>${i.hops}</th>
+          </tr></thead><tbody>${seedRows}</tbody></table>` : `<div class="empty">${i.noResOnNode}</div>`}
+        </section>
+      </main>${footer()}`;
+    }
+
+
+    function classLabel(c) {
+      const i = t();
+      if (c === "permanent") return i.permanent;
+      if (c === "temporary") return i.temporary;
+      return c || "";
+    }
+    function folderIcon(open) {
+      if (open) {
+        return `<svg class="ft-icon folder" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M.25 3.2A2 2 0 0 1 2.2 1.5h3.05c.5 0 .97.2 1.32.54l.9.9h6.33A2 2 0 0 1 15.75 5v.75H2.55a.75.75 0 0 0-.74.62l-.12.7H.25V3.2Z" opacity=".55"/><path d="M1.7 7h13.1c.7 0 1.22.66 1.07 1.34l-1.05 4.7A1.75 1.75 0 0 1 13.13 14.5H1.92A1.75 1.75 0 0 1 .22 12.4L1.7 7Z"/></svg>`;
+      }
+      return `<svg class="ft-icon folder" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2.2 2.5A1.7 1.7 0 0 0 .5 4.2v7.6A1.7 1.7 0 0 0 2.2 13.5h11.6a1.7 1.7 0 0 0 1.7-1.7V6.4a1.7 1.7 0 0 0-1.7-1.7H8.15l-.78-1.16A1.7 1.7 0 0 0 5.96 2.5H2.2Z"/></svg>`;
+    }
+    function fileIcon() {
+      return `<svg class="ft-icon file" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 1.5h5.2L12.5 5v9.5H4V1.5z"/><path d="M9.2 1.5V5H12.5"/><path d="M6 8h4.2M6 10.25h4.2M6 12.5h2.8"/></svg>`;
+    }
+    function isFolderOpen(path) { return openFolders[path] !== false; }
+    function toggleFolder(path) { openFolders[path] = !isFolderOpen(path); render(); }
+    function showMoreFiles(path, all) {
+      const n = folderLimit[path] || 200;
+      folderLimit[path] = all ? 1e9 : n + 400;
+      render();
+    }
+    function normDigest(d) {
+      d = String(d || "").toLowerCase();
+      if (!d) return "";
+      return d.indexOf("sha256:") === 0 ? d : "sha256:" + d;
+    }
+    function seedKind(s) {
+      if (!s) return "";
+      const dig = normDigest(s.digest);
+      const board = (resourcesBoard.seeds || []).find(x => normDigest(x.digest) === dig);
+      if (board && board.kind) return board.kind;
+      if ((s.files || 0) > 1) return "tree";
+      return "";
+    }
+    function seedIsTree(s) { return !!s && seedKind(s) !== "blob"; }
+    function sortTreeNodes(nodes) {
+      return nodes.sort((a, b) => {
+        if (!!a.dir !== !!b.dir) return a.dir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    function ensureSeedContents(digest) {
+      const key = normDigest(digest);
+      if (!key) return;
+      if (seedContents[key] && (seedContents[key].ok || seedContents[key].loading)) return;
+      seedContents[key] = { loading: true };
+      fetch("/live/resources/sha256/" + key.slice(7))
+        .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+        .then(info => { seedContents[key] = { ok: true, files: info.files || [] }; })
+        .catch(e => { seedContents[key] = { err: e.message || String(e) }; })
+        .then(() => render());
+    }
+    function mergeFileTree(n, files) {
+      (files || []).forEach(f => {
+        const rel = String(f.path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+        if (!rel || rel === ".") return;
+        const isDir = !!f.dir;
+        const parts = rel.split("/").filter(Boolean);
+        let cur = n;
+        let acc = n.path;
+        parts.forEach((part, idx) => {
+          acc = acc ? acc + "/" + part : part;
+          const last = idx === parts.length - 1;
+          if (!cur.children[part]) cur.children[part] = { name: part, path: acc, dir: !last || isDir, children: {} };
+          const child = cur.children[part];
+          if (!last || isDir) child.dir = true;
+          if (last && !isDir) { child.dir = false; child.file = f; }
+          if (last && isDir) child.file = f;
+          cur = child;
+        });
+      });
+    }
+    function applySeedDefaults(n) {
+      if (n.seed && seedIsTree(n.seed) && Object.keys(n.children || {}).length === 0) {
+        if (!Object.prototype.hasOwnProperty.call(openFolders, n.path)) openFolders[n.path] = false;
+      }
+      Object.values(n.children || {}).forEach(applySeedDefaults);
+    }
+    const DIR_UNIT_FILES = 100;
+    function seedFileCount(s) {
+      if (!s) return 0;
+      const c = Number(s.file_count);
+      if (c > 0) return c;
+      if (typeof s.files === "number") return s.files;
+      if (Array.isArray(s.files)) return s.files.filter(f => !f.dir).length;
+      return 0;
+    }
+    function isDirUnitPreview(n) { return !!n && seedFileCount(n.seed) > DIR_UNIT_FILES; }
+    function hydrateSeedNode(n) {
+      if (!n || !n.seed || !n.seed.digest || !n.dir) return;
+      if (isDirUnitPreview(n)) { n.dirUnit = true; return; }
+      const key = normDigest(n.seed.digest);
+      const cache = seedContents[key];
+      if (cache && cache.ok) mergeFileTree(n, cache.files);
+      else if (cache && cache.loading) n.seedPending = true;
+      else if (cache && cache.err) n.seedError = cache.err;
+      else if (isFolderOpen(n.path)) { n.seedPending = true; ensureSeedContents(n.seed.digest); }
+    }
+
+    function worktreeHTML(wt) {
+      if (!wt) return "";
+      const i = t();
+      const rootBit = wt.root ? `<div class="ftree-bar">${folderIcon()}<span class="path mono" title="${esc(wt.root)}">${withCopy(wt.root, esc(wt.root))}</span></div>` : "";
+      const cwd = wt.working_directory && wt.working_directory !== "." ? `<span class="sub">cwd ${withCopy(wt.working_directory, esc(wt.working_directory))}</span>` : "";
+      return `<section class="summary ftree-sec">
+        <h2>${i.worktree}</h2>
+        <p class="sub" style="margin:0">${i.worktreeSub}${cwd ? " · " + cwd : ""}</p>
+        ${rootBit}
+        ${renderWorktree(wt)}
+      </section>`;
+    }
+    function ensureTreeNode(root, path, file) {
+      const parts = String(path || "").split("/").filter(Boolean);
+      let n = root;
+      let acc = "";
+      parts.forEach((part, idx) => {
+        acc = acc ? acc + "/" + part : part;
+        const isLast = idx === parts.length - 1;
+        if (!n.children[part]) n.children[part] = { name: part, path: acc, dir: !(isLast && file), children: {} };
+        n = n.children[part];
+        if (!(isLast && file)) n.dir = true;
+      });
+      return n;
+    }
+    function renderWorktree(wt) {
+      const i = t();
+      const root = { name: "", path: "", dir: true, children: {} };
+      (wt.directories || []).forEach(d => {
+        const n = ensureTreeNode(root, d.path, false);
+        n.dir = true;
+        n.className = d.class;
+        n.writable = !!d.writable;
+      });
+      (wt.seeds || []).forEach(s => {
+        const isTree = seedIsTree(s);
+        const n = ensureTreeNode(root, s.dest, !isTree);
+        n.dir = isTree;
+        n.seed = s;
+        if (s.class) n.className = n.className || s.class;
+      });
+      (wt.outputs || []).forEach(o => {
+        const n = ensureTreeNode(root, o.path, false);
+        n.dir = true;
+        n.output = o;
+        if (o.class) n.className = n.className || o.class;
+      });
+      if (wt.entrypoint) {
+        const n = ensureTreeNode(root, wt.entrypoint, true);
+        n.entrypoint = true;
+        n.dir = false;
+      }
+      applySeedDefaults(root);
+      const kids = Object.values(root.children);
+      if (!kids.length) return `<div class="empty">${i.worktreeSub}</div>`;
+      const rows = sortTreeNodes(kids).map(n => treeNodeHTML(n, 0)).join("");
+      return `<div class="ftree">
+        <div class="ftree-row head">
+          <div class="ftree-name">${i.colName}</div>
+          <div class="ftree-role">${i.labels}</div>
+          <div class="ftree-size">${i.size}</div>
+          <div class="ftree-digest">digest</div>
+        </div>
+        ${rows}
+      </div>`;
+    }
+    function treeNodeHTML(n, depth) {
+      const i = t();
+      hydrateSeedNode(n);
+      const kids = sortTreeNodes(Object.values(n.children || {}));
+      const canExpand = !!(n.dir && (kids.length || n.seedPending || n.seedError || seedIsTree(n.seed)));
+      const open = canExpand && isFolderOpen(n.path);
+      const chevron = canExpand
+        ? `<button type="button" class="ft-chev-btn" title="${esc(n.path)}" onclick="event.stopPropagation(); toggleFolder('${escAttr(n.path)}')"><svg class="ft-chev ${open?"open":""}" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg></button>`
+        : `<span class="ft-chev-spacer"></span>`;
+      const roles = [];
+      if (n.seed) {
+        const href = n.seed.digest ? seedHref(n.seed.digest) : "";
+        const chip = `<span class="ft-chip seed">${esc(n.seed.name || i.seed)}</span>`;
+        roles.push(href ? `<a href="${href}" onclick="event.stopPropagation()">${chip}</a>` : chip);
+        const nfiles = n.seed.file_count || n.seed.files || 0;
+        if (nfiles) roles.push(`<span class="ft-chip">${esc(i.fileCount(nfiles))}</span>`);
+      }
+      if (n.output) roles.push(`<span class="ft-chip output">${esc(i.output)}${n.output.name ? " " + esc(n.output.name) : ""}</span>`);
+      if (n.entrypoint) roles.push(`<span class="ft-chip entry">${esc(i.entrypoint)}</span>`);
+      if (n.className) roles.push(`<span class="ft-chip">${esc(classLabel(n.className))}</span>`);
+      if (n.dir && n.writable != null && (n.className || n.writable)) {
+        roles.push(`<span class="ft-chip">${n.writable ? i.writable : i.readOnly}</span>`);
+      }
+      const sizeNum = (n.seed && n.seed.size) || (n.file && n.file.size) || 0;
+      const size = sizeNum ? humanBytes(sizeNum) : "";
+      const dig = (n.seed && n.seed.digest) || "";
+      const digest = dig
+        ? withCopy(dig, `<a class="seed" href="${seedHref(dig)}" title="${esc(dig)}">${esc(displayDigest(dig))}</a>`)
+        : "";
+      let inner = "";
+      if (open && isDirUnitPreview(n)) {
+        const nfiles = seedFileCount(n.seed);
+        inner = `<div class="ftree-row hint" style="--d:${depth+1}">
+          <div class="ftree-name"><span class="ft-chev-spacer"></span><span class="label">${esc(i.dirUnitHint(nfiles))}</span></div>
+          <div class="ftree-role"><span class="ft-chip">${esc(i.dirUnit)}</span></div>
+          <div class="ftree-size">${n.seed && n.seed.size ? esc(humanBytes(n.seed.size)) : ""}</div>
+          <div class="ftree-digest"></div>
+        </div>`;
+      } else if (open) {
+        const limit = folderLimit[n.path] || 200;
+        const visible = kids.slice(0, limit);
+        const rest = kids.length - visible.length;
+        const extra = [];
+        if (n.seedPending && !kids.length) extra.push(`<div class="ftree-row hint" style="--d:${depth+1}"><div class="ftree-name"><span class="ft-chev-spacer"></span><span class="label">${i.loadingFiles}</span></div><div class="ftree-role"></div><div class="ftree-size"></div><div class="ftree-digest"></div></div>`);
+        if (n.seedError && !kids.length) extra.push(`<div class="ftree-row hint" style="--d:${depth+1}"><div class="ftree-name"><span class="ft-chev-spacer"></span><span class="label">${i.loadFailed}</span></div><div class="ftree-role"></div><div class="ftree-size"></div><div class="ftree-digest"></div></div>`);
+        inner = visible.map(c => treeNodeHTML(c, depth + 1)).join("") + extra.join("");
+        if (rest > 0) {
+          const step = Math.min(400, rest);
+          inner += `<div class="ftree-row more" style="--d:${depth+1}" onclick="event.stopPropagation(); showMoreFiles('${escAttr(n.path)}', false)">
+            <div class="ftree-name"><span class="ft-chev-spacer"></span><span class="label">${i.moreFiles(step)}</span></div>
+            <div class="ftree-role"><button type="button" class="ft-chip" onclick="event.stopPropagation(); showMoreFiles('${escAttr(n.path)}', true)">${i.showAllFiles(kids.length)}</button></div>
+            <div class="ftree-size"></div><div class="ftree-digest"></div>
+          </div>`;
+        }
+      }
+      return `<div class="ftree-row" style="--d:${depth}">
+        <div class="ftree-name">${chevron}${n.dir ? folderIcon(open) : fileIcon()}${withCopy(n.path, `<span class="label" title="${esc(n.path)}">${esc(n.name)}</span>`)}</div>
+        <div class="ftree-role">${roles.join("")}</div>
+        <div class="ftree-size">${esc(size)}</div>
+        <div class="ftree-digest">${digest}</div>
+      </div>${inner}`;
+    }
+
+    function linkSeeds(text) {
+      return esc(text).replace(/sha256:[a-fA-F0-9]{64}/g, m => {
+        const hex = m.slice(7).toLowerCase();
+        const full = "sha256:" + hex;
+        return withCopy(full, `<a class="seed" href="#/resources/sha256/${hex}">${full}</a>`);
+      });
+    }
+    function humanBytes(n) {
+      n = Number(n) || 0;
+      if (n < 1024) return n + " B";
+      const units = ["KiB","MiB","GiB","TiB"];
+      let i = -1, v = n;
+      do { v /= 1024; i++; } while (v >= 1024 && i < units.length-1);
+      return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i];
+    }
+    function seedHref(digest) {
+      const m = String(digest||"").toLowerCase().replace(/^sha256:/,"");
+      return "#/resources/sha256/" + m;
+    }
+    function esc(s) { return String(s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+    function escAttr(s) { return esc(s).replace(/`/g,""); }
+
+
+    function renderResources() {
+      const i = t();
+      const all = resourcesBoard.seeds || [];
+      const seeds = filteredResources();
+      const viewer = resourcesBoard.viewer || (status && status.name) || "—";
+      const rows = seeds.map(s => {
+        const hops = minHops(s);
+        const hopsText = hops >= 1e9 ? "—" : String(hops);
+        return `<tr onclick="location.hash='${seedHref(s.digest)}'">
+          <td class="mono digest-cell">${withCopy(s.digest, `<a class="seed" href="${seedHref(s.digest)}" title="${esc(s.digest)}">${esc(displayDigest(s.digest))}</a>`)}</td>
+          <td>${withCopy(s.name, esc(s.name || "—"))}</td>
+          <td>${withCopy(s.kind, esc(s.kind || ""))}</td>
+          <td>${withCopy(String(s.size ?? ""), humanBytes(s.size))}</td>
+          <td>${withCopy(String((s.locations||[]).length), String((s.locations||[]).length))}</td>
+          <td>${s.created_at ? withCopy(s.created_at, esc(fmtDate(s.created_at))) : "—"}</td>
+          <td>${hopsText === "—" ? "—" : withCopy(hopsText, hopsText)}</td>
+        </tr>`;
+      }).join("");
+      return `${header("resources")}<main>
+        <h1>${i.resTitle}</h1>
+        <p class="sub">${i.resSub(all.length, viewer)}</p>
+        <div class="toolbar">
+          <input id="q" class="search" type="search" value="${esc(resQuery)}" placeholder="${esc(i.searchRes)}" oninput="setResQuery(this.value)" autocomplete="off">
+          ${seeds.length !== all.length ? `<span class="hint-count">${i.showing(seeds.length, all.length)}</span>` : ""}
+        </div>
+        <div class="filters">
+          <button class="chip ${resKind==="all"?"active":""}" onclick="setResKind('all')">${i.kindAll}</button>
+          <button class="chip ${resKind==="tree"?"active":""}" onclick="setResKind('tree')">${i.kindTree}</button>
+          <button class="chip ${resKind==="blob"?"active":""}" onclick="setResKind('blob')">${i.kindBlob}</button>
+        </div>
+        ${seeds.length ? `<table class="res"><thead><tr>
+          <th><span class="th">digest ${eyeBtn()}${colSort("digest")}</span></th>
+          <th><span class="th">${lang==="zh"?"名称":"Name"}${colSort("name")}</span></th>
+          <th><span class="th">${i.kind}${colSort("kind")}</span></th>
+          <th><span class="th">${i.size}${colSort("size")}</span></th>
+          <th><span class="th">${i.resNodes}${colSort("nodes")}</span></th>
+          <th><span class="th">${i.created}${colSort("created")}</span></th>
+          <th><span class="th">${i.minHops}${colSort("hops")}</span></th>
+        </tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">${i.noResources}</div>`}
+      </main>${footer()}`;
+    }
+    function renderResource(digest) {
+      const i = t();
+      const seeds = resourcesBoard.seeds || [];
+      const info = seeds.find(s => (s.digest || "").toLowerCase() === (digest || "").toLowerCase());
+      if (!info) return `${header("resources")}<main><a class="back" href="#/resources">← ${i.allResources}</a><div class="empty">${i.noResources}</div></main>${footer()}`;
+      const hex = (info.digest || "").replace(/^sha256:/i, "");
+      const locRows = (info.locations||[]).map(l => {
+        const via = i["via_" + (l.via || "")] || l.via || "—";
+        return `<tr>
+          <td>${withCopy(l.node || l.peer_id, nodeLink(l.node, l.peer_id))}</td>
+          <td class="mono">${withCopy(l.peer_id, esc(l.peer_id || ""))}</td>
+          <td>${withCopy(String(l.hops), String(l.hops))}</td>
+          <td>${esc(via)}</td>
+          <td>${l.connected ? i.yes : i.no}${l.local ? " · " + i.via_local : ""}</td>
+        </tr>`;
+      }).join("") || `<tr><td colspan="5">—</td></tr>`;
+      const fileRows = (info.files||[]).map(f => `<tr>
+        <td class="mono">${withCopy(f.path, esc(f.path))}</td>
+        <td class="mono">${f.digest ? withCopy(f.digest, `<a class="seed" href="${seedHref(f.digest)}">${esc(f.digest)}</a>`) : "—"}</td>
+        <td>${withCopy(String(f.size ?? ""), humanBytes(f.size))}</td>
+      </tr>`).join("");
+      return `${header("resources")}<main>
+        <a class="back" href="#/resources">← ${i.allResources}</a>
+        <h1>${withCopy(info.name || info.digest, esc(info.name || info.digest))}</h1>
+        <p class="sub mono">${withCopy(info.digest, esc(info.digest))}</p>
+        <div class="meta-grid">
+          <div><div class="k">${i.kind}</div><div class="v">${withCopy(info.kind, esc(info.kind || "—"))}</div></div>
+          <div><div class="k">${i.size}</div><div class="v">${withCopy(String(info.size ?? ""), humanBytes(info.size))}</div></div>
+          <div><div class="k">${i.replicas}</div><div class="v">${withCopy(String((info.locations||[]).length), String((info.locations||[]).length))}</div></div>
+          <div><div class="k">${i.hopsFrom}</div><div class="v">${withCopy(resourcesBoard.viewer || (status && status.name) || "", esc(resourcesBoard.viewer || (status && status.name) || "—"))}</div></div>
+        </div>
+        <section class="summary">
+          <h2>${i.locations}</h2>
+          <table class="res"><thead><tr>
+            <th>${i.nodesCount}</th><th>peer</th><th>${i.hops}</th><th>${i.via}</th><th>${i.connected}</th>
+          </tr></thead><tbody>${locRows}</tbody></table>
+          <a class="btn" href="/live/resources/sha256/${hex}/content">${i.download}</a>
+        </section>
+        ${fileRows ? `<section class="summary"><h2>${i.files}</h2><table class="res"><thead><tr><th>path</th><th>digest</th><th>${i.size}</th></tr></thead><tbody>${fileRows}</tbody></table></section>` : ""}
+      </main>${footer()}`;
+    }
+
+    function render() {
+      const active = document.activeElement;
+      const restoreId = (active && (active.id === "q" || active.id === "sort")) ? active.id : "";
+      const start = restoreId && typeof active.selectionStart === "number" ? active.selectionStart : null;
+      const end = restoreId && typeof active.selectionEnd === "number" ? active.selectionEnd : null;
+      const r = route();
+      let html = "";
+      if (r.page === "nodes") html = renderNodes();
+      else if (r.page === "node") html = renderNode(r.id);
+      else if (r.page === "resources") html = renderResources();
+      else if (r.page === "resource") html = renderResource(r.digest);
+      else if (r.page === "task") html = renderTask(r.id);
+      else html = renderTasks();
+      document.getElementById("app").innerHTML = html;
+      if (restoreId) {
+        const el = document.getElementById(restoreId);
+        if (el) {
+          el.focus();
+          if (start != null && el.setSelectionRange) {
+            try { el.setSelectionRange(start, end); } catch (_) {}
+          }
+        }
+      }
+    }
+
+    async function refresh() {
+      try {
+        const [tb, st, rs] = await Promise.all([
+          fetch("/live/tasks").then(r => r.json()),
+          fetch("/live/status").then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText))),
+          fetch("/live/resources").then(r => r.ok ? r.json() : { seeds: [] }).catch(() => ({ seeds: [] }))
+        ]);
+        tasksBoard = tb || { tasks: [] };
+        resourcesBoard = rs || { seeds: [] };
+        status = st;
+        statusErr = null;
+        if (status && status.peers) {
+          /* include self in count when catalog already has it */
+        }
+      } catch (e) {
+        statusErr = e;
+        try { tasksBoard = await fetch("/live/tasks").then(r => r.json()); } catch (_) {}
+      }
+      render();
+    }
+
+    window.setLang = setLang;
+    window.toggleJob = toggleJob;
+    window.toggleFolder = toggleFolder;
+    window.showMoreFiles = showMoreFiles;
+    window.setFilter = setFilter;
+    window.setTaskQuery = setTaskQuery;
+    window.setTaskSort = setTaskSort;
+    window.setResQuery = setResQuery;
+    window.setResSort = setResSort;
+    window.setResColSort = setResColSort;
+    window.toggleDigest = toggleDigest;
+    window.setResKind = setResKind;
+    window.copyFrom = copyFrom;
+    window.render = render;
+    window.addEventListener("hashchange", render);
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>
