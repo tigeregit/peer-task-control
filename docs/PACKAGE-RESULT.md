@@ -1,6 +1,6 @@
 # 任务 Package result 大纲
 
-P2 尚未实现执行；本文先冻结 **Package result** 的 YAML 约定。实现时按这份文档做，不要另发明一套字段。
+本文冻结 **Package result** 的 YAML 约定。本机执行和网格下发都按这份文档打包结果。
 
 ## 原则
 
@@ -57,4 +57,4 @@ jobs:
 
 ## 状态
 
-本机已可用 `ptc submit` 执行 Package result：收集路径、计算内容寻址种子、写入 `packages/<id>/manifest.json` 和任务摘要。把结果发布到其他 files 节点尚未实现。
+本机已可用 `ptc submit` 执行 Package result：收集路径、计算内容寻址种子、写入 `packages/<id>/manifest.json` 和任务摘要。结果包按摘要发布后，其他节点可通过现有资源下载协议拉取（不是 bitswap）。

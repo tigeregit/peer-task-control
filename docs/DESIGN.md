@@ -19,9 +19,10 @@ Windows 上开发 CUDA。任务要把程序和大量测试数据送到正确的�
 - 本机策略：可按 IP、CIDR、节点名、peer ID 设白名单 / 黑名单，或关闭部分功能。默认名单空、功能开。有白名单则只为名单内提供该服务，黑名单优先。目录里仍能看到该节点，但标出关闭的服务；拒绝必须带原因。这是主机操作策略，不是集群认证。
 - CUDA 任务派到网关必须拒绝（P2 实现，P0 在目录中把无 GPU 的 exec 标为不可用）。
 
-## 后续阶段（尚未实现）
+## 阶段进度
 
-- P1：boxo UnixFS / bitswap / filestore / pin，永久与临时分级。
-- P2：工作树任务。任务大纲借鉴 Actions 的 job/step，每个 job 必须以 prepare 开头、以 package result 收尾（[PREPARE.md](PREPARE.md)、[PACKAGE-RESULT.md](PACKAGE-RESULT.md)，模板在 [templates/](templates/)）。`ptc submit` 已能在本机执行该大纲；向其他节点下发尚未实现。
-- P3：WebUI 与版本绑定 skill 的完整界面。当前已有只读任务看板，含任务 / 资源 / 节点分栏；资源查询与下载和 CLI 共用本机控制接口。官方完整产品界面仍待后续。
-- P4：SSH 首次安装、网格升级与回退。
+- P0：组网（见上）。已完成。
+- P1：boxo UnixFS / bitswap / filestore / pin，永久与临时分级。**尚未实现**（当前按摘要整体打包/下载）。
+- P2：工作树任务。任务大纲借鉴 Actions 的 job/step，每个 job 必须以 Prepare 开头、以 Package result 收尾（[PREPARE.md](PREPARE.md)、[PACKAGE-RESULT.md](PACKAGE-RESULT.md)，模板在 [templates/](templates/)）。`ptc submit` 可在本机执行，也可用 `--target`（或 `auto`）经 `/ptc/exec/1.0.0` 下发到指定 exec 节点。目标执行与本机同一套 Prepare → steps → Package result 路径。已发布种子按摘要从最短路径持有者拉取并校验（目录单元用 DirDigest）；仅存在于提交者本地路径的种子先在提交者上发布。exec 节点有持久 FIFO 队列，默认并发 1。`require_nvidia`（默认 true）作业派到无 GPU 或 exec 关闭的节点（包括网关）必须拒绝。工作树与种子分目录存储；清工作树不得删除 CAS/packages。结果包默认临时，可 pin。
+- P3：WebUI 与版本绑定 skill 的完整界面。当前已有只读任务看板（任务 / 资源 / 节点，节点展示真实磁盘占用）。官方完整产品界面仍待后续。提交、取消、清理只走 CLI。
+- P4：SSH 首次安装、网格升级与回退。**尚未实现**。

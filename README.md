@@ -10,15 +10,17 @@
 - **任务大纲与本机执行**：借鉴 Actions 的 job/step，首步必须是 Prepare、末步必须是 Package result；`ptc submit` 在本机按 Prepare → run → Package result 执行，并保存工作树快照。
 - **种子**：目录按整体计算 DirDigest（目录单元），结果包与 Prepare 种子都按摘要发布。
 - **网格共享**：运行记录与资源清单在全网可查；目录种子经 libp2p 以 tar 下载，可跨中转。
-- **只读看板**：中英双语 WebUI，任务 / 资源 / 节点分栏；与 CLI 共用本机 `/api/v1` 和 `internal/query`，查询结果同源。
+- **只读看板**：中英双语 WebUI，任务 / 资源 / 节点分栏；与 CLI 共用本机 `/api/v1` 和 `internal/query`，查询结果同源。节点页显示种子盘和工作树盘的真实容量及 ptc 占用。
 - **Windows 原生节点**：`docker/run-host-node.ps1` 让本机真实 GPU 以 `host` 节点加入 Docker 网格。
+- **P2 网格下发**：`ptc submit --target` 把作业派到指定（或 `auto`）exec 节点，经 `/ptc/exec/1.0.0` 传输；目标按目录最短路径拉取已发布种子并校验摘要。exec 节点有持久 FIFO 队列（默认并发 1）。`ptc queue` / `ptc cancel` 仅 CLI。
+- **存储分离**：种子（`cas/` + `packages/`）与每轮工作树分目录、分生命周期；清工作树不会删种子。路径可在配置、环境变量和 `--seeds-dir` / `--worktrees-dir` / `--runs-dir` 里分开设置。`ptc clean` 在本机回收结果包、记录、种子或残留工作树。
 
 未完成：
 
 - **P1**：bitswap、filestore、pin（当前只有按摘要整体下载，没有分块交换）。
-- **P2 网格下发**：`ptc submit` 尚不能把作业派到指定远端节点。
 - **P3**：官方完整产品界面（当前只有只读看板）。
 - **P4**：SSH 首次安装、网格升级与回退。
+- 远程 `ptc clean --node`（清理只作用于本机）。提交者断开 follow 不会取消作业，需显式 `ptc cancel`。
 
 设计草案：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。离线摘要见 [docs/DESIGN.md](docs/DESIGN.md)。
 
@@ -85,12 +87,15 @@ docker compose -f docker/docker-compose.yml down -v
 | `ptc policy` | 查看或设置本机白名单、黑名单和功能开关 |
 | `ptc skill print` | 输出与当前版本绑定的 skill |
 | `ptc version` | 打印版本 |
-| `ptc submit` | 在本机执行工作流（Prepare → run → Package result）。网格下发尚未实现 |
+| `ptc submit` | 本机执行，或 `--target` 下发到网格 exec 节点（默认 follow） |
 | `ptc webui` | 本机只读任务看板（中英双语；任务 / 资源 / 节点分栏；查询与下载。不提供改策略或提交作业） |
+| `ptc queue` | 列出各节点排队中 / 正在运行的作业 |
+| `ptc cancel` | 取消排队中或正在运行的作业（仅 CLI） |
 | `ptc tasks` | 列出或查看网格内公开的运行记录（与看板共用接口和筛选语义） |
+| `ptc clean` | 本机清理结果包、运行记录、种子或工作树 |
 | `ptc resources` | 列出全网种子，查看大小 / 所在设备 / 中转次数，或下载（与看板共用接口；`--list-files` 可列出超大目录树的路径） |
 
-查询类能力与 WebUI 同源（同一套本机 `/api/v1` 和 `internal/query`）。策略变更、本机 `submit`、启动 daemon 等控制操作只在 CLI 里提供，看板保持只读。
+查询类能力与 WebUI 同源（同一套本机 `/api/v1` 和 `internal/query`）。策略变更、`submit`、`cancel`、`clean`、启动 daemon 等控制操作只在 CLI 里提供，看板保持只读。可选的 Ubuntu CUDA 节点见 `docker/docker-compose.cuda.yml`（官方 `nvidia/cuda:13.5.0-devel-ubuntu22.04`，不要写进默认 live compose）。
 
 ## 仓库约定
 

@@ -1,56 +1,86 @@
-# peer-task-control skill
+---
+name: peer-task-control
+description: >
+  Dispatch CUDA and other workflows across a trusted-LAN ptc mesh.
+  Use when the user wants to run ptc, submit or cancel a job, pick a GPU
+  node, inspect tasks/resources/queue/disk, or clean local storage.
+---
 
-版本：与 `ptc version` 相同（当前 0.1.0-p0）。若本 skill 与机器上的 `ptc version` 不一致，先升级再继续，不要混用命令说明。
+# peer-task-control
 
-你在帮助用户把 CUDA 程序和测试数据派到局域网上的指定机器。当前软件完成了组网（P0），以及本机工作流执行：`ptc submit` 会按 Prepare / run / Package result 在本机搭工作树、跑步骤并打包结果。网格下发、按 CID 从邻居取种、SSH 安装和远程升级还没有实现；不要虚构这些行为。
+Version-bound: this text must match `ptc version` (currently **0.2.0-p2**). If they differ, upgrade before continuing. Print the copy shipped in the binary with `ptc skill print`.
 
-## 必须遵守
+You help the user send programs (often CUDA) and test data to the right machine on a trusted LAN. Cross-segment traffic goes through a whitelist gateway that has no NVIDIA GPU and must never be an exec target for CUDA jobs.
 
-- 项目配置里只有受信任网段和端口，没有邻居名单。不要向用户要邻居 IP。流程是：先在本机起 `ptc daemon`，再等目录出现，然后用 `ptc peers` 查看。
-- 指定网段内的设备都视为可信，加入不做成员验证。网段外不接纳。
-- 跨网段依赖 `relay` 网关主动拨号并保持会话，不要假设对端能回连。
-- 没有 NVIDIA GPU 的节点（通常是网关）不能作为 CUDA 执行目标。
-- 凭证、PSK、SSH 密码不得写入仓库、issue、日志示例或 commit。
+## When to use
 
-## 常用命令
+- Start or talk to a `ptc daemon`, list peers, or inspect policy.
+- Run or dispatch a Prepare / run / Package result workflow with `ptc submit`.
+- Watch, cancel, or clean jobs; list seeds; read the live board.
+
+Details, flags, exit codes, and the HTTP API live in [docs/CLI.md](docs/CLI.md). Do not invent commands that are not listed here or there.
+
+## Core workflow
+
+1. `ptc version` and, if acting as an agent, `ptc skill print` — confirm the skill matches the binary.
+2. Ensure `ptc daemon --config config.yaml` is running on this machine (`trusted_cidrs` only; never ask the user for neighbor IPs).
+3. `ptc peers --json` (or `ptc peers show <name> --json`) — wait until the catalog lists the intended node. Prefer `--json` over scraping tables (same idea as `gh` / `kubectl`).
+4. Choose a target (see rules below). CUDA jobs go to an exec node with a real NVIDIA GPU (`host` on Windows, or the optional `cuda` Ubuntu container), never to `gateway` or a no-GPU worker.
+5. `ptc submit --workflow <file> --target <name|peer-id|auto> --json` to dispatch; omit `--target` to run locally. Default is follow (stream until done). Use `--detach` only when the user wants to return immediately, then watch with `ptc queue` / `ptc tasks`.
+6. After success, the result digest is in the JSON (and printed in follow mode). Fetch with `ptc resources get <digest> -o <file>` or `--fetch-result <dir>` on a followed submit.
+
+WebUI (`ptc webui`) is **read-only**. Do not try to submit, cancel, change policy, or clean through the board. Those are CLI-only.
+
+## Decision rules: picking a target
+
+- `--target` omitted → run on this machine (local `ptc submit`).
+- `--target <name|peer-id>` → pre-check the catalog, then send `/ptc/exec/1.0.0`. The target enforces `prepare.yaml` (`require_nvidia` and `deny_non_exec` default **true**).
+- `--target auto` → pick an eligible exec node (NVIDIA + exec offered). Never resolves to a gateway for CUDA jobs.
+- **Never target a gateway** (or any node with `exec` off / no NVIDIA) for a `require_nvidia` job. Expect a clear refusal; do not retry the same target.
+- Content-addressed seeds already on the mesh are **not** shipped in the bundle. The target pulls from the closest holder (existing resource tar path) and verifies DirDigest / sha256. A seed that exists only as a local path on the submitter is published there first.
+- One node runs `exec.concurrency` jobs at a time (default 1); later jobs **queue** (FIFO). They show as `queued` / `running` / `succeeded` / `failed` / `cancelled` in `ptc tasks`, `ptc queue`, and the WebUI.
+- Follow disconnect does **not** cancel the job. Cancel explicitly with `ptc cancel <run-id>`.
+- There is no bitswap/filestore/pin protocol yet (P1). Do not claim it exists. Digests are whole-tree or whole-blob downloads.
+
+## Machine-readable output
+
+Agents should pass `--json` on `peers`, `peers show`, `tasks`, `tasks show`, `resources`, `resources show`, `submit`, `queue`, `cancel`, and `clean`. Do not parse human tables. This follows `gh --json` / `kubectl -o json` conventions.
+
+## Error recovery
+
+1. Version mismatch → install a matching binary; reread `ptc skill print`.
+2. `daemon lock not found` → start `ptc daemon --config config.yaml` with the same `--data-dir`.
+3. Target not in the catalog → wait for a scan/relay push; check `trusted_cidrs` and, across segments, that a `relay` gateway is up. Do not invent neighbor IPs. Gateways may use `scan_hosts` (e.g. `host.docker.internal` for the Windows `host` node).
+4. Placement / policy refusal → pick another node; show the error; do not `--force` a CUDA job onto a no-GPU machine.
+5. `queue is full` or job sits in `queued` → `ptc queue --json`; wait or `ptc cancel`.
+6. Digest missing on the target → confirm the submitter published it (`ptc resources --node <submitter>`) and the mesh resource protocol can reach that replica.
+7. Disk pressure → `ptc peers show <name> --json` (real volume totals and ptc usage). Free space with `ptc clean … --dry-run` then `--yes`. Worktrees and seeds are **different stores**; cleaning a worktree never deletes CAS/packages. Pinned items need `--force`. Seeds referenced by queued/running jobs are refused. `ptc clean` is local-only.
+8. Still stuck → read `docs/DESIGN.md`, `docs/CLI.md`, `docs/CONTRIBUTING.md`. Do not patch a running node out of tree.
+
+## Commands (this version)
 
 ```text
 ptc version
 ptc skill print
 ptc daemon --config config.yaml
-ptc peers
-ptc peers show <name|peer>
-ptc policy show
-ptc policy allow add <IP|CIDR|节点名|peerID>
-ptc policy allow rm <同上>
-ptc policy deny add <同上>
-ptc policy deny rm <同上>
-ptc policy service exec|files|relay on|off
-ptc submit --workflow <file>
-ptc submit --workflow <file> --dry-run
-ptc webui --runs <data-dir>/runs
-ptc tasks
-ptc tasks --search <q> --status <status> --node <name> --sort started --order desc
-ptc tasks show <id>
-ptc resources
-ptc resources --search <q> --kind tree|blob --node <name> --sort name
-ptc resources show <digest>
-ptc resources show <digest> --list-files
-ptc resources get <digest> -o <file>
+ptc peers[--json]
+ptc peers show <name|peer> [--json]
+ptc policy show|allow|deny|service
+ptc submit --workflow <file> [--target <name|peer|auto>] [--detach] [--fetch-result <dir>] [--json] [--dry-run]
+ptc queue [--node <name>] [--json]
+ptc cancel <run-id> [--json]
+ptc tasks / tasks show <id> [--json]
+ptc resources / resources show|get <digest> [--json]
+ptc clean outputs|runs|resource|worktrees [--match RE] [--dry-run] [--yes] [--force] [--json]
+ptc webui
 ```
 
-`ptc peers` 会列出已知节点，以及执行、文件、中转是否开放。目录里仍能看到关闭了部分服务的节点，只是对应服务会标明关闭原因。`ptc peers show` 查看一台设备的硬件、历史任务和存储的种子。`ptc tasks` 和 `ptc resources` 与 WebUI 共用同一套本机控制接口和筛选/排序/搜索语义：前者列出网格内公开的运行记录，`tasks show` 会给出按 Prepare YAML 渲染的工作树；后者列出全网种子（含 Prepare 依赖和 Package 结果）、所在节点数、创建时间和到当前节点的最短中转次数，并支持下载。超过 100 个文件的目录树种子自动以目录为操作单位（整个目录一个 digest，不为小文件单独哈希）；看板展开和工作树预览默认只显示文件数量，CLI 可用 `resources show --list-files` 列出路径。不超过 100 个文件的目录仍可展开查看具体文件。WebUI 是只读看板，不要通过它改策略或提交作业；`ptc policy`、`ptc submit` 和 `ptc daemon` 只在 CLI 使用。在 Docker 演示中验证 Windows 本机入网时，用 `docker/run-host-node.ps1` 启动名为 `host` 的原生节点。
+Storage paths (`storage.seeds_dir`, `storage.worktrees_dir`, `storage.runs_dir`) default under `data_dir` and can be overridden with `--seeds-dir` / `--worktrees-dir` / `--runs-dir` or `PTC_*_DIR`. Windows may put worktrees on a fast drive such as `D:\ptc\worktrees`.
 
-## 排障顺序
+Optional Ubuntu CUDA node (official `nvidia/cuda:13.5.0-devel-ubuntu22.04`, GPU passthrough): `docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda`. The default live compose stays free of mocked GPUs. Native Windows GPU node: `docker/run-host-node.ps1`.
 
-1. 确认本机 `ptc version` 与 skill 版本一致。
-2. 确认 daemon 在跑，`ptc peers` 能连上本机 API。
-3. 确认配置里的 `trusted_cidrs` 覆盖了本机和目标机所在网段，且监听端口是 18765（或配置中的同一端口）。
-4. 同网段仍看不见：检查防火墙是否放行该 TCP 端口，等待一轮 mDNS / 探测。
-5. 跨网段看不见：确认至少有一台 `relay` 网关能访问两个网段，等待一轮扫描间隔（默认 30 秒），不要去填邻居地址。网关可用 `scan_hosts` 额外探测主机名（例如本机 `host.docker.internal`）。
-6. 对端看得到但请求被拒：用 `ptc policy show` 查看目标机的白名单、黑名单和功能开关。拒绝应带明确原因。
-7. 仍然不对：阅读仓库里的 `docs/DESIGN.md`（以及设计 Page）、`docs/CONTRIBUTING.md`，按其中的 issue / PR / commit 规则报告或改代码，不要在节点上私下打补丁。
+## Not provided (do not call)
 
-## 尚未提供（不要调用）
+`ptc dataset`, `ptc gc`, `ptc status`, `ptc logs`, `ptc artifacts`, `ptc install --ssh`, `ptc update`, bitswap/filestore/pin, remote `ptc clean --node` (local only unless a future policy.remote_clean protocol is added), and submitting or cancelling from the WebUI. Official full P3 UI and P4 SSH install/upgrade are not done.
 
-`ptc dataset`、`ptc gc`、`ptc status`、`ptc logs`、`ptc artifacts`、`ptc install --ssh`、`ptc update`，以及把任务下发到其他节点，属于后续阶段。查询和下载已有结果种子请用 `ptc resources`，不要调用尚未提供的 `ptc artifacts`。`ptc submit` 目前只在本机执行。若用户需要网格下发，说明尚未实现，并指向 `docs/PREPARE.md`、`docs/PACKAGE-RESULT.md` 和设计文档。
+Full flag lists and the loopback API are in [docs/CLI.md](docs/CLI.md). Prepare / Package result contracts: [docs/PREPARE.md](docs/PREPARE.md), [docs/PACKAGE-RESULT.md](docs/PACKAGE-RESULT.md).
