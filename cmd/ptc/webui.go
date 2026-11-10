@@ -24,7 +24,7 @@ func webuiCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "webui",
 		Short: "Serve a local bilingual task board for the neighbor mesh",
-		Long:  "A read-only board that lists tasks, neighbor nodes, and fleet-wide content seeds. Click a result seed to open its size, locations, and relay hop counts from this node, and to download it. The board talks to the same /api/v1/resources and /api/v1/runs interface as the CLI. P2 task submit is not implemented yet, so this board does not dispatch CUDA work.",
+		Long:  "A read-only board that lists tasks, neighbor nodes, and fleet-wide content seeds. Click a result seed to open its size, locations, and relay hop counts from this node, and to download it. The board talks to the same /api/v1/resources and /api/v1/runs interface as the CLI. It is read-only: submit, cancel, and clean stay on the CLI.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if tasksPath == "" {
 				tasksPath = report
@@ -243,6 +243,12 @@ func describeNode(e catalog.Entry) string {
 	} else if e.Caps.OS != "" {
 		bits = append(bits, "nvidia=false "+e.Caps.OS+"/"+e.Caps.Arch)
 	}
+	if e.Disk != nil {
+		bits = append(bits, fmt.Sprintf("ptc seeds=%d worktrees=%d outputs=%d records=%d", e.Disk.SeedsBytes, e.Disk.WorktreesBytes, e.Disk.OutputsBytes, e.Disk.RecordsBytes))
+		for _, v := range e.Disk.Volumes {
+			bits = append(bits, fmt.Sprintf("disk %s (%s) free=%d total=%d", v.Path, v.Role, v.Free, v.Total))
+		}
+	}
 	return strings.Join(bits, "\n")
 }
 
@@ -300,8 +306,8 @@ func meshWatchTask(st control.Status, fetchErr error, started, now time.Time) Ta
 		}
 	}
 	t.Summary = Text{
-		ZH: fmt.Sprintf("目录当前有 %d 个节点：%d 个提供 exec，%d 个提供 relay。此任务会持续刷新，直到网格关闭。P2 任务下发尚未实现，这里显示的是实时组网状态，不是 CUDA 作业。", len(nodes), execN, relayN),
-		EN: fmt.Sprintf("Catalog currently has %d node(s): %d offering exec, %d offering relay. This task keeps refreshing until the mesh stops. P2 task submit is not implemented yet, so this is live mesh status, not a CUDA job.", len(nodes), execN, relayN),
+		ZH: fmt.Sprintf("目录当前有 %d 个节点：%d 个提供 exec，%d 个提供 relay。此任务会持续刷新，直到网格关闭。实时组网状态会持续刷新；由网格下发的作业会出现在任务列表里，但不能从看板提交。", len(nodes), execN, relayN),
+		EN: fmt.Sprintf("Catalog currently has %d node(s): %d offering exec, %d offering relay. This task keeps refreshing until the mesh stops. Live mesh status keeps refreshing. Mesh-dispatched jobs appear in the task list; the board does not submit them.", len(nodes), execN, relayN),
 	}
 	if len(nodes) == 0 {
 		t.Annotations = []Annotation{{

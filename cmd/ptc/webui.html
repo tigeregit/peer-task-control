@@ -323,6 +323,14 @@
         addrs: "地址",
         services: "服务",
         noGPU: "无 GPU",
+        disk: "磁盘",
+        ptcUsage: "本机占用",
+        seedsBytes: "种子",
+        worktreesBytes: "工作树",
+        outputsBytes: "结果包",
+        recordsBytes: "记录",
+        diskFree: "可用",
+        diskTotal: "总量",
         resNodes: "所在节点数",
         created: "创建时间",
         minHops: "最短中转",
@@ -424,6 +432,14 @@
         addrs: "Addresses",
         services: "Services",
         noGPU: "No GPU",
+        disk: "Disk",
+        ptcUsage: "ptc usage",
+        seedsBytes: "Seeds",
+        worktreesBytes: "Worktrees",
+        outputsBytes: "Outputs",
+        recordsBytes: "Records",
+        diskFree: "Free",
+        diskTotal: "Total",
         resNodes: "Nodes",
         created: "Created",
         minHops: "Min hops",
@@ -897,6 +913,21 @@
       </div>`;
     }
 
+
+    function diskChip(n) {
+      const d = n.disk;
+      if (!d || !d.volumes || !d.volumes.length) return "";
+      const v = d.volumes[0];
+      const line = (v.free != null && v.total) ? `${humanBytes(v.free)} free / ${humanBytes(v.total)}` : "";
+      return line ? `<div class="id">${esc(line)}</div>` : "";
+    }
+    function diskDetail(n, i) {
+      const d = n.disk;
+      if (!d) return "";
+      const vols = (d.volumes || []).map(v => `<div><div class="k">${i.disk} · ${esc(v.role || "")}</div><div class="v">${esc(v.path || "")}<br>${i.diskFree} ${humanBytes(v.free)} / ${i.diskTotal} ${humanBytes(v.total)} (${humanBytes(v.used)} used)</div></div>`).join("");
+      const usage = `<div><div class="k">${i.ptcUsage}</div><div class="v">${i.seedsBytes} ${humanBytes(d.seeds_bytes)} · ${i.worktreesBytes} ${humanBytes(d.worktrees_bytes)} · ${i.outputsBytes} ${humanBytes(d.outputs_bytes)} · ${i.recordsBytes} ${humanBytes(d.records_bytes)}</div></div>`;
+      return usage + vols;
+    }
     function nodeList() {
       const peers = (status && status.peers) || [];
       const haveSelf = status && status.peer_id && peers.some(p => p.peer_id === status.peer_id);
@@ -933,6 +964,7 @@
         <div class="id mono">${withCopy(n.peer_id, esc(n.peer_id || ""))}</div>
         <div class="id">${withCopy(addrText, esc((n.addrs||[]).join(" · ")))}</div>
         <div class="svcs">${serviceChips(n)}${gpu ? `<span class="svc">${esc(gpu)}</span>` : ""}</div>
+        ${diskChip(n)}
       </div>`;
     }
     function renderNode(id) {
@@ -967,6 +999,7 @@
             <div><div class="k">${i.driver}</div><div class="v">${withCopy(caps.driver, esc(caps.driver || "—"))}</div></div>
             <div><div class="k">${i.addrs}</div><div class="v">${withCopy((n.addrs||[]).join("\n"), esc((n.addrs||[]).join(" · ") || "—"))}</div></div>
             <div><div class="k">${i.services}</div><div class="v"><div class="svcs">${serviceChips(n)}</div></div></div>
+            ${diskDetail(n, i)}
           </div>
         </section>
         <section class="jobs">
