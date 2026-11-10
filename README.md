@@ -11,6 +11,8 @@
 - Go 1.23+（开发机已验证 1.27.3）
 - 可选：Docker，用于跨网段验证
 
+在国内下载依赖可以用：`go env -w GOPROXY=https://goproxy.cn,direct`。
+
 ## 快速开始
 
 ```text
