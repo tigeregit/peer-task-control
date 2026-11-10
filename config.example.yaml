@@ -1,0 +1,39 @@
+# peer-task-control 节点配置。不需要填写邻居名单。
+# 复制到数据目录的 config.yaml，或用 ptc daemon --config 指定。
+
+# 节点显示名，默认是主机名。
+# name: iamsbb2
+
+# 组网监听，固定端口 18765。
+listen: 0.0.0.0:18765
+
+# 本机 CLI / 控制 API，默认只绑 loopback。
+api: 127.0.0.1:18780
+
+# 数据与身份密钥目录。留空则用系统用户配置目录下的 ptc。
+# data_dir: ""
+
+# 受信任网段。来自这些网段的设备都被视为可信；网段外的连接一律拒绝。
+# 至少写一条。本机测试可加上 127.0.0.0/8。
+trusted_cidrs:
+  - 192.168.0.0/16
+  - 10.0.0.0/8
+
+# 可选。32 字节密钥的 hex（64 个字符），只用来挡住网段外的误连。
+# 集群内所有节点必须相同。留空表示不启用。
+# psk: ""
+
+# 本机提供的服务。exec 若本机没有 NVIDIA GPU，目录里仍会标为不可用。
+services:
+  exec: true
+  files: true
+  relay: false
+
+# 本机操作策略。名单为空且功能开启，表示接受受信任网段内所有对端。
+# 条目可以是 IP、CIDR、节点名或 peer ID。
+policy:
+  allow: []
+  deny: []
+
+# 网关（relay: true）扫描受信任网段的间隔。
+scan_interval: 30s

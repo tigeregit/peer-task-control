@@ -1,0 +1,11 @@
+/ptc
+/ptc.exe
+/bin/
+/dist/
+*.exe
+.ptc/
+data/
+*.log
+coverage.out
+.DS_Store
+Thumbs.db

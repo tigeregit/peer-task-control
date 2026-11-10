@@ -1,0 +1,96 @@
+# Cross-subnet P0 check: node-a and node-b cannot reach each other;
+# the gateway sits on both networks, scans both CIDRs, and pushes the catalog.
+name: ptc-p0
+
+networks:
+  seg_a:
+    ipam:
+      config:
+        - subnet: 10.87.0.0/24
+  seg_b:
+    ipam:
+      config:
+        - subnet: 10.87.1.0/24
+
+services:
+  node-a:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: node-a
+    networks:
+      seg_a:
+        ipv4_address: 10.87.0.10
+    volumes:
+      - ./testdata/node-a.yaml:/data/config.yaml:ro
+      - a-data:/data
+    command: ["daemon", "--config", "/data/config.yaml", "--data-dir", "/data"]
+    healthcheck:
+      test: ["CMD", "ptc", "peers", "--data-dir", "/data"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  node-b:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: node-b
+    networks:
+      seg_b:
+        ipv4_address: 10.87.1.10
+    volumes:
+      - ./testdata/node-b.yaml:/data/config.yaml:ro
+      - b-data:/data
+    command: ["daemon", "--config", "/data/config.yaml", "--data-dir", "/data"]
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    hostname: gateway
+    networks:
+      seg_a:
+        ipv4_address: 10.87.0.2
+      seg_b:
+        ipv4_address: 10.87.1.2
+    volumes:
+      - ./testdata/gateway.yaml:/data/config.yaml:ro
+      - gw-data:/data
+    command: ["daemon", "--config", "/data/config.yaml", "--data-dir", "/data"]
+    depends_on:
+      - node-a
+      - node-b
+
+  check:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    networks:
+      seg_a:
+        ipv4_address: 10.87.0.200
+    volumes:
+      - a-data:/data
+    depends_on:
+      - node-a
+      - node-b
+      - gateway
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        i=0
+        while [ $$i -lt 60 ]; do
+          out=$$(ptc peers --data-dir /data --json 2>/dev/null || true)
+          echo "$$out"
+          echo "$$out" | grep -q 'node-b' && echo "$$out" | grep -q 'gateway' && echo 'P0 docker catalog OK' && exit 0
+          i=$$((i+1))
+          sleep 2
+        done
+        echo 'timed out waiting for node-a to see node-b and gateway' >&2
+        exit 1
+
+volumes:
+  a-data:
+  b-data:
+  gw-data:
