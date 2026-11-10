@@ -1,14 +1,11 @@
 package node
 
 import (
-	"archive/tar"
 	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -40,7 +37,7 @@ type resourcesMessage struct {
 func (n *Node) localResourceInfos() []resource.Info {
 	loc := n.RouteTo(n.Host.ID().String())
 	var out []resource.Info
-	for _, s := range resource.Inventory(n.Cfg.DataDir) {
+	for _, s := range resource.InventoryAt(n.Cfg.PackagesDir(), n.Cfg.CASDir()) {
 		out = append(out, resource.Info{Seed: s, Locations: []resource.Location{loc}})
 	}
 	return out
@@ -101,10 +98,10 @@ func (n *Node) Resource(ctx context.Context, digest string) (resource.Info, erro
 	return info, nil
 }
 
-func lookupSeeds(dataDir, digest string) []resource.Seed {
+func lookupSeeds(packagesDir, casDir, digest string) []resource.Seed {
 	digest = resource.Normalize(digest)
 	var out []resource.Seed
-	for _, s := range resource.Inventory(dataDir) {
+	for _, s := range resource.InventoryAt(packagesDir, casDir) {
 		if s.Digest == digest {
 			out = append(out, s)
 		}
@@ -113,7 +110,7 @@ func lookupSeeds(dataDir, digest string) []resource.Seed {
 }
 
 func (n *Node) fillSeedFiles(ctx context.Context, info resource.Info) resource.Seed {
-	for _, s := range resource.Inventory(n.Cfg.DataDir) {
+	for _, s := range resource.InventoryAt(n.Cfg.PackagesDir(), n.Cfg.CASDir()) {
 		if s.Digest == info.Digest && len(s.Files) > 0 {
 			return s
 		}
@@ -172,13 +169,13 @@ func (n *Node) handleResources(s network.Stream) {
 	}
 	switch msg.Type {
 	case "list":
-		seeds := resource.Inventory(n.Cfg.DataDir)
+		seeds := resource.InventoryAt(n.Cfg.PackagesDir(), n.Cfg.CASDir())
 		for i := range seeds {
 			seeds[i].Files = nil
 		}
 		_ = writeResMsg(s, resourcesMessage{Type: "list", Node: n.Cfg.Name, PeerID: n.Host.ID().String(), Seeds: seeds})
 	case "show":
-		_ = writeResMsg(s, resourcesMessage{Type: "show", Node: n.Cfg.Name, PeerID: n.Host.ID().String(), Seeds: lookupSeeds(n.Cfg.DataDir, msg.Digest)})
+		_ = writeResMsg(s, resourcesMessage{Type: "show", Node: n.Cfg.Name, PeerID: n.Host.ID().String(), Seeds: lookupSeeds(n.Cfg.PackagesDir(), n.Cfg.CASDir(), msg.Digest)})
 	case "blob":
 		blob, err := n.openLocal(msg.Digest)
 		if err != nil {
@@ -312,13 +309,13 @@ func (n *Node) fetchBlob(ctx context.Context, id, digest string) (resource.Blob,
 
 func (n *Node) openLocal(digest string) (resource.Blob, error) {
 	digest = resource.Normalize(digest)
-	if dir := resource.FindPackageDir(n.Cfg.DataDir, digest); dir != "" {
+	if dir := resource.FindPackageDirAt(n.Cfg.PackagesDir(), digest); dir != "" {
 		pr, pw := io.Pipe()
 		go func() {
-			err := writeTar(dir, pw)
+			err := cas.WriteTar(dir, pw)
 			_ = pw.CloseWithError(err)
 		}()
-		inv := resource.Inventory(n.Cfg.DataDir)
+		inv := resource.InventoryAt(n.Cfg.PackagesDir(), n.Cfg.CASDir())
 		name := resource.Hex(digest) + ".tar"
 		var size int64
 		for _, s := range inv {
@@ -330,7 +327,7 @@ func (n *Node) openLocal(digest string) (resource.Blob, error) {
 		}
 		return resource.Blob{Digest: digest, Name: name, Kind: "tree", Size: size, ContentType: "application/x-tar", Body: pr}, nil
 	}
-	store := cas.New(filepath.Join(n.Cfg.DataDir, "cas"))
+	store := cas.New(n.Cfg.CASDir())
 	f, err := store.Open(digest)
 	if err != nil {
 		return resource.Blob{}, err
@@ -341,42 +338,6 @@ func (n *Node) openLocal(digest string) (resource.Blob, error) {
 		return resource.Blob{}, err
 	}
 	return resource.Blob{Digest: digest, Name: resource.Hex(digest), Kind: "blob", Size: st.Size(), ContentType: "application/octet-stream", Body: f}, nil
-}
-
-func writeTar(dir string, w io.Writer) error {
-	tw := tar.NewWriter(w)
-	defer tw.Close()
-	return filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if rel == "." {
-			return nil
-		}
-		hdr, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return err
-		}
-		hdr.Name = rel
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(tw, f)
-		f.Close()
-		return err
-	})
 }
 
 // RouteTo describes how this node reaches peerID, including relay hop count.

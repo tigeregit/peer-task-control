@@ -26,6 +26,8 @@ import (
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/config"
 	"github.com/peer-task-control/ptc/internal/control"
+	"github.com/peer-task-control/ptc/internal/disk"
+	"github.com/peer-task-control/ptc/internal/dispatch"
 	"github.com/peer-task-control/ptc/internal/gater"
 	"github.com/peer-task-control/ptc/internal/ident"
 	"github.com/peer-task-control/ptc/internal/identity"
@@ -60,6 +62,12 @@ type Node struct {
 	localTime time.Time
 	scanNow   chan struct{}
 	selfAddrs map[string]struct{}
+	queue     *dispatch.Queue
+	follows   *execFollowers
+	cancels   map[string]context.CancelFunc
+	execKick  chan struct{}
+	disk      disk.Usage
+	diskAt    time.Time
 }
 
 func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node, error) {
@@ -112,6 +120,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 		ctx:       ctx,
 		cancel:    cancel,
 		scanNow:   make(chan struct{}, 1),
+		execKick:  make(chan struct{}, 1),
 		selfAddrs: map[string]struct{}{},
 	}
 	n.bumpLocal()
@@ -121,6 +130,11 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	h.SetStreamHandler(ProtocolCatalog, n.handleCatalog)
 	h.SetStreamHandler(ProtocolRuns, n.handleRuns)
 	h.SetStreamHandler(ProtocolResources, n.handleResources)
+	if err := n.initExec(); err != nil {
+		cancel()
+		_ = h.Close()
+		return nil, err
+	}
 	h.Network().Notify((*netNotifee)(n))
 
 	if !cfg.DisableMDNS {
@@ -247,7 +261,21 @@ func (n *Node) LocalEntry() catalog.Entry {
 			Arch:    n.Caps.Arch,
 		},
 		UpdatedAt: updated,
+		Disk:      n.diskUsage(),
 	}
+}
+
+func (n *Node) diskUsage() *disk.Usage {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if time.Since(n.diskAt) < 5*time.Second && n.diskAt.Unix() != 0 {
+		u := n.disk
+		return &u
+	}
+	u := disk.Measure(n.Cfg)
+	n.disk = u
+	n.diskAt = time.Now()
+	return &u
 }
 
 func (n *Node) PersistPolicy() error {

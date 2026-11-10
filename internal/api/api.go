@@ -10,6 +10,7 @@ import (
 
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/control"
+	"github.com/peer-task-control/ptc/internal/dispatch"
 	"github.com/peer-task-control/ptc/internal/policy"
 	"github.com/peer-task-control/ptc/internal/query"
 	"github.com/peer-task-control/ptc/internal/resource"
@@ -27,6 +28,10 @@ type Node interface {
 	CollectResources(ctx context.Context) []resource.Info
 	Resource(ctx context.Context, digest string) (resource.Info, error)
 	OpenResource(ctx context.Context, digest string) (resource.Blob, error)
+	Dispatch(ctx context.Context, target catalog.Entry, bundle []byte, follow bool, submitter taskboard.Party, ev func(dispatch.Event)) (dispatch.Event, error)
+	CollectQueue(ctx context.Context) []dispatch.QueueItem
+	Cancel(ctx context.Context, id string) error
+	FindPeer(id string) (catalog.Entry, bool)
 }
 
 type Server struct {
@@ -45,6 +50,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/resources", s.resources)
 	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}", s.resource)
 	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}/content", s.resourceContent)
+	mux.HandleFunc("POST /api/v1/exec", s.exec)
+	mux.HandleFunc("GET /api/v1/queue", s.queue)
+	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
 	return mux
 }
 

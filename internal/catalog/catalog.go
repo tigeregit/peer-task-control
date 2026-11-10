@@ -4,6 +4,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/peer-task-control/ptc/internal/disk"
 )
 
 type ServiceState struct {
@@ -27,6 +29,7 @@ type Entry struct {
 	Addrs     []string                `json:"addrs"`
 	Services  map[string]ServiceState `json:"services"`
 	Caps      Caps                    `json:"caps"`
+	Disk      *disk.Usage             `json:"disk,omitempty"`
 	UpdatedAt time.Time               `json:"updated_at"`
 }
 

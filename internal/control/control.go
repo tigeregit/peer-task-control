@@ -1,11 +1,14 @@
 package control
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/config"
+	"github.com/peer-task-control/ptc/internal/dispatch"
 	"github.com/peer-task-control/ptc/internal/resource"
 	"github.com/peer-task-control/ptc/internal/taskboard"
 )
@@ -256,4 +260,95 @@ func indexFilename(disp string) string {
 		rest = rest[:j]
 	}
 	return strings.TrimSpace(rest)
+}
+
+func (c *Client) Queue() ([]dispatch.QueueItem, error) {
+	var out struct {
+		Jobs []dispatch.QueueItem `json:"jobs"`
+	}
+	err := c.withTimeout(15*time.Second).get("/api/v1/queue", &out)
+	return out.Jobs, err
+}
+
+func (c *Client) Cancel(id string) error {
+	var out map[string]string
+	return c.withTimeout(15*time.Second).post("/api/v1/cancel", map[string]string{"id": id}, &out)
+}
+
+// Exec posts a bundle to the local daemon, which dispatches it over the mesh.
+// When follow is true, ev is called for each NDJSON event; the last done/error
+// event is returned.
+func (c *Client) Exec(ctx context.Context, target string, bundle []byte, follow bool, ev func(dispatch.Event)) (dispatch.Event, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	q := "/api/v1/exec?target=" + url.QueryEscape(target)
+	if follow {
+		q += "&follow=1"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Base+q, bytes.NewReader(bundle))
+	if err != nil {
+		return dispatch.Event{}, err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	hc := http.Client{Timeout: 0} // follow may last as long as the job
+	if !follow && c.HTTP != nil && c.HTTP.Timeout > 0 {
+		hc.Timeout = c.HTTP.Timeout
+		if hc.Timeout < 2*time.Minute {
+			hc.Timeout = 2 * time.Minute
+		}
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return dispatch.Event{}, err
+	}
+	defer resp.Body.Close()
+	if !follow {
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode >= 300 {
+			return dispatch.Event{}, fmt.Errorf("%s: %s", resp.Status, bytes.TrimSpace(body))
+		}
+		var ev dispatch.Event
+		if err := json.Unmarshal(body, &ev); err != nil {
+			return dispatch.Event{}, err
+		}
+		return ev, nil
+	}
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return dispatch.Event{}, fmt.Errorf("%s: %s", resp.Status, bytes.TrimSpace(body))
+	}
+	br := bufio.NewReader(resp.Body)
+	var last dispatch.Event
+	for {
+		line, err := br.ReadBytes('\n')
+		if len(line) > 0 {
+			var e dispatch.Event
+			if json.Unmarshal(line, &e) == nil {
+				last = e
+				if ev != nil {
+					ev(e)
+				}
+				if e.Type == "done" || e.Type == "error" {
+					if e.Type == "error" || (e.Status != "" && e.Status != dispatch.StatusSucceeded) {
+						msg := e.Error
+						if msg == "" {
+							msg = e.Status
+						}
+						return e, fmt.Errorf("%s", msg)
+					}
+					return e, nil
+				}
+			}
+		}
+		if err == io.EOF {
+			if last.Type != "" {
+				return last, nil
+			}
+			return last, fmt.Errorf("follow ended without a done event")
+		}
+		if err != nil {
+			return last, err
+		}
+	}
 }

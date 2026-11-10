@@ -50,9 +50,16 @@ type Task struct {
 	Annotations []Annotation `json:"annotations,omitempty"`
 	Jobs        []Job        `json:"jobs,omitempty"`
 	Source      string       `json:"source,omitempty"`
+	Submitter   *Party       `json:"submitter,omitempty"`
 	Node        string       `json:"node,omitempty"`
 	PeerID      string       `json:"peer_id,omitempty"`
 	Worktree    *Worktree    `json:"worktree,omitempty"`
+}
+
+// Party names a mesh node by name and libp2p peer ID.
+type Party struct {
+	Node   string `json:"node,omitempty"`
+	PeerID string `json:"peer_id,omitempty"`
 }
 
 type Worktree struct {

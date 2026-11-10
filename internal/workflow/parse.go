@@ -11,18 +11,18 @@ import (
 
 // Loaded is a workflow plus the Prepare and Package result documents it points to.
 type Loaded struct {
-	Workflow      Workflow
-	Path          string
-	Dir           string
-	JobName       string
-	Job           Job
-	Prepare       Prepare
-	PreparePath   string
-	Package       PackageResult
-	PackagePath   string
-	PrepareStep   Step
-	PackageStep   Step
-	RunSteps      []Step
+	Workflow    Workflow
+	Path        string
+	Dir         string
+	JobName     string
+	Job         Job
+	Prepare     Prepare
+	PreparePath string
+	Package     PackageResult
+	PackagePath string
+	PrepareStep Step
+	PackageStep Step
+	RunSteps    []Step
 }
 
 func LoadWorkflow(path string) (Workflow, error) {
@@ -110,8 +110,38 @@ func LoadJob(workflowPath, jobName string) (Loaded, error) {
 	out.PackageStep = job.Steps[len(job.Steps)-1]
 	out.RunSteps = job.Steps[1 : len(job.Steps)-1]
 
-	prepPath := resolve(out.Dir, out.PrepareStep.WithFile())
-	pkgPath := resolve(out.Dir, out.PackageStep.WithFile())
+	return finishLoad(out, resolve(out.Dir, out.PrepareStep.WithFile()), resolve(out.Dir, out.PackageStep.WithFile()))
+}
+
+// LoadJobFiles is LoadJob with the Prepare and Package result files given
+// explicitly instead of read from the steps' with.file (used for dispatched
+// bundles, which store them under fixed names).
+func LoadJobFiles(workflowPath, preparePath, packagePath, jobName string) (Loaded, error) {
+	var out Loaded
+	abs, err := filepath.Abs(workflowPath)
+	if err != nil {
+		return out, err
+	}
+	wf, err := LoadWorkflow(abs)
+	if err != nil {
+		return out, err
+	}
+	out.Workflow, out.Path, out.Dir = wf, abs, filepath.Dir(abs)
+	name, job, err := pickJob(wf, jobName)
+	if err != nil {
+		return out, err
+	}
+	out.JobName, out.Job = name, job
+	if err := ValidateJob(name, job); err != nil {
+		return out, err
+	}
+	out.PrepareStep = job.Steps[0]
+	out.PackageStep = job.Steps[len(job.Steps)-1]
+	out.RunSteps = job.Steps[1 : len(job.Steps)-1]
+	return finishLoad(out, preparePath, packagePath)
+}
+
+func finishLoad(out Loaded, prepPath, pkgPath string) (Loaded, error) {
 	prep, err := LoadPrepare(prepPath)
 	if err != nil {
 		return out, err

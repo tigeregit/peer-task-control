@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -27,10 +26,10 @@ type runsMessage struct {
 }
 
 func (n *Node) runsDir() string {
-	if n.Cfg == nil || n.Cfg.DataDir == "" {
+	if n.Cfg == nil {
 		return ""
 	}
-	return filepath.Join(n.Cfg.DataDir, "runs")
+	return n.Cfg.RunsDir()
 }
 
 func (n *Node) localRuns() []taskboard.Task {

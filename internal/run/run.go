@@ -22,6 +22,12 @@ import (
 
 type Options struct {
 	DataDir string
+	// SeedsDir is the parent of cas/ and packages/. Empty means DataDir.
+	SeedsDir string
+	// WorktreesDir is the root of per-run worktrees. Empty means DataDir/worktrees.
+	WorktreesDir string
+	// RunsDir holds run records. Empty means DataDir/runs.
+	RunsDir string
 	// Force skips the NVIDIA / exec host check (tests and explicit override).
 	Force bool
 	// KeepWorktree leaves the worktree even if cleanup would remove it.
@@ -31,6 +37,39 @@ type Options struct {
 	Now func() time.Time
 	// Detect is optional; defaults to caps.Detect.
 	Detect func() caps.Info
+	// Context bounds Prepare fetches and run steps. Defaults to Background.
+	Context context.Context
+	// Start fixes the run start time. Zero means Now().
+	Start time.Time
+	// RunID overrides the record id (mesh queue assigns one at enqueue).
+	RunID string
+	// Fetch downloads a seed by digest from the mesh (closest replica).
+	// Nil means digest seeds must already be on this node.
+	Fetch func(ctx context.Context, digest string) (resource.Blob, error)
+	// SeedOverrides replaces how named seeds are retrieved. Mesh dispatch uses
+	// it to point seeds at inline bundle content or at a published digest.
+	SeedOverrides map[string]SeedSource
+	// Dispatch, when set, marks the run as received over the mesh.
+	Dispatch *DispatchInfo
+}
+
+// SeedSource is where a seed comes from instead of its Prepare declaration.
+type SeedSource struct {
+	// Dir is a local file or directory already verified against Digest.
+	Dir    string
+	Digest string
+}
+
+// DispatchInfo records who sent a mesh-dispatched job and who ran it.
+type DispatchInfo struct {
+	JobID     string
+	Submitter taskboard.Party
+	Executor  taskboard.Party
+}
+
+// TaskID is the run record ID for a job started at start.
+func TaskID(start time.Time, job string) string {
+	return "run-" + start.UTC().Format("20060102T150405Z") + "-" + job
 }
 
 type Result struct {
@@ -43,6 +82,34 @@ type Result struct {
 	TaskPath   string
 }
 
+func (opt Options) seedsDir() string {
+	if opt.SeedsDir != "" {
+		return opt.SeedsDir
+	}
+	return opt.DataDir
+}
+
+func (opt Options) packagesDir() string { return filepath.Join(opt.seedsDir(), "packages") }
+func (opt Options) casDir() string      { return filepath.Join(opt.seedsDir(), "cas") }
+
+func (opt Options) worktreesDir() string {
+	if opt.WorktreesDir != "" {
+		return opt.WorktreesDir
+	}
+	return filepath.Join(opt.DataDir, "worktrees")
+}
+
+func (opt Options) runsDir() string {
+	if opt.RunsDir != "" {
+		return opt.RunsDir
+	}
+	return filepath.Join(opt.DataDir, "runs")
+}
+
+func (opt Options) FetchTmpDir() string {
+	return filepath.Join(opt.worktreesDir(), ".fetch")
+}
+
 func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 	if opt.Stdout == nil {
 		opt.Stdout = io.Discard
@@ -53,7 +120,13 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 	if opt.Detect == nil {
 		opt.Detect = caps.Detect
 	}
-	start := opt.Now()
+	if opt.Context == nil {
+		opt.Context = context.Background()
+	}
+	start := opt.Start
+	if start.IsZero() {
+		start = opt.Now()
+	}
 	id := start.UTC().Format("20060102T150405Z")
 	host, _ := os.Hostname()
 	if !opt.Force {
@@ -64,11 +137,11 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 
 	workRoot := loaded.Prepare.Layout.Root
 	if workRoot == "" {
-		workRoot = filepath.Join(opt.DataDir, "worktrees", id+"-"+loaded.JobName)
+		workRoot = filepath.Join(opt.worktreesDir(), id+"-"+loaded.JobName)
 	}
-	pkgDir := filepath.Join(opt.DataDir, "packages", id+"-"+loaded.JobName)
-	runsDir := filepath.Join(opt.DataDir, "runs")
-	store := cas.New(filepath.Join(opt.DataDir, "cas"))
+	pkgDir := filepath.Join(opt.packagesDir(), id+"-"+loaded.JobName)
+	runsDir := opt.runsDir()
+	store := cas.New(opt.casDir())
 
 	res := Result{ID: id, Worktree: workRoot, PackageDir: pkgDir}
 	job := taskboard.Job{ID: loaded.JobName, Name: taskboard.Text{ZH: loaded.JobName, EN: loaded.JobName}, StartedAt: taskboard.PtrTime(start)}
@@ -81,7 +154,7 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 		job.Steps = recSteps
 		job.EndedAt = taskboard.PtrTime(opt.Now())
 		res.Status = "failure"
-		res.Task = finishTask(loaded, host, start, opt.Now(), res.Status, "prepare failed: "+err.Error(), "", job, snapshotWorktree(loaded, workRoot, seeds))
+		res.Task = finishTask(loaded, host, start, opt.Now(), res.Status, "prepare failed: "+err.Error(), "", job, snapshotWorktree(loaded, workRoot, seeds), opt.Dispatch, opt.RunID)
 		res.TaskPath, _ = writeTask(runsDir, res.Task)
 		return res, err
 	}
@@ -123,7 +196,7 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 	} else if pkgErr != nil {
 		summary = "package failed: " + pkgErr.Error()
 	}
-	res.Task = finishTask(loaded, host, start, end, res.Status, summary, digest, job, snapshotWorktree(loaded, workRoot, seeds))
+	res.Task = finishTask(loaded, host, start, end, res.Status, summary, digest, job, snapshotWorktree(loaded, workRoot, seeds), opt.Dispatch, opt.RunID)
 	var werr error
 	res.TaskPath, werr = writeTask(runsDir, res.Task)
 	if res.Status == "success" {
@@ -168,7 +241,7 @@ func runPrepare(loaded workflow.Loaded, workRoot string, store *cas.Store, start
 	for _, seed := range loaded.Prepare.Seeds {
 		dest := filepath.Join(workRoot, filepath.FromSlash(seed.Dest))
 		ws := taskboard.WorktreeSeed{Name: seed.Name, Dest: seed.Dest, Class: seed.Class}
-		if err := materializeSeed(loaded.Dir, seed, dest, store, &log); err != nil {
+		if err := materializeSeed(loaded.Dir, seed, dest, store, &log, opt); err != nil {
 			seeds = append(seeds, ws)
 			if seed.IsRequired() {
 				st.Status, st.Log, st.EndedAt = "failure", log.String(), taskboard.PtrTime(opt.Now())
@@ -177,7 +250,7 @@ func runPrepare(loaded workflow.Loaded, workRoot string, store *cas.Store, start
 			fmt.Fprintf(&log, "optional seed %s skipped: %v\n", seed.Name, err)
 			continue
 		}
-		if pub, err := resource.PublishTree(opt.DataDir, seed.Name, dest, start); err != nil {
+		if pub, err := resource.PublishTreeTo(opt.packagesDir(), seed.Name, dest, start); err != nil {
 			fmt.Fprintf(&log, "seed %s publish warning: %v\n", seed.Name, err)
 		} else {
 			ws.Digest = pub.Digest
@@ -192,12 +265,28 @@ func runPrepare(loaded workflow.Loaded, workRoot string, store *cas.Store, start
 	return st, seeds, nil
 }
 
-func materializeSeed(base string, seed workflow.Seed, dest string, store *cas.Store, log *bytes.Buffer) error {
+func materializeSeed(base string, seed workflow.Seed, dest string, store *cas.Store, log *bytes.Buffer, opt Options) error {
+	if ov, ok := opt.SeedOverrides[seed.Name]; ok {
+		switch {
+		case ov.Dir != "":
+			if err := cas.CopyTree(ov.Dir, dest); err != nil {
+				return err
+			}
+			fmt.Fprintf(log, "seed %s inline %s -> %s\n", seed.Name, ov.Digest, dest)
+			return nil
+		case ov.Digest != "":
+			return materializeDigest(seed.Name, ov.Digest, dest, store, log, opt)
+		}
+	}
 	switch {
 	case seed.Local != nil && seed.Local.Src != "":
 		src := seed.Local.Src
 		if !filepath.IsAbs(src) {
 			src = filepath.Join(base, src)
+		}
+		if _, err := os.Stat(src); err != nil && seed.Digest != "" {
+			fmt.Fprintf(log, "seed %s local %s missing; using digest %s\n", seed.Name, src, seed.Digest)
+			return materializeDigest(seed.Name, seed.Digest, dest, store, log, opt)
 		}
 		if err := cas.CopyTree(src, dest); err != nil {
 			return err
@@ -219,13 +308,9 @@ func materializeSeed(base string, seed workflow.Seed, dest string, store *cas.St
 		fmt.Fprintf(log, "seed %s local %s -> %s\n", seed.Name, src, dest)
 		return nil
 	case seed.Digest != "":
-		if err := store.Materialize(seed.Digest, dest); err != nil {
-			return err
-		}
-		fmt.Fprintf(log, "seed %s cas %s -> %s\n", seed.Name, seed.Digest, dest)
-		return nil
+		return materializeDigest(seed.Name, seed.Digest, dest, store, log, opt)
 	case seed.CID != "" || (seed.Source != nil && seed.Source.Dataset != ""):
-		return fmt.Errorf("mesh fetch of cid/source seeds is not implemented yet; provide seeds.local or a sha256 blob already in the local CAS")
+		return fmt.Errorf("cid/source seeds need bitswap (P1), which is not implemented; use seeds.local or a sha256 digest published on the mesh")
 	default:
 		return fmt.Errorf("no retrieval method")
 	}
@@ -252,7 +337,11 @@ func runCommand(loaded workflow.Loaded, workRoot string, step workflow.Step, opt
 			timeout = d
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	parent := opt.Context
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd, err := shellCommand(ctx, loaded.Prepare.Workspace.Shell, step.Run)
 	if err != nil {
@@ -428,7 +517,7 @@ func runPackage(loaded workflow.Loaded, workRoot, pkgDir string, store *cas.Stor
 		seedName = loaded.Package.Publish.Seed.Name
 	}
 	runOKVal := runOK
-	pub, err := resource.CommitTree(pkgDir, seedName, start, resource.CommitOpts{Format: loaded.Package.Package.Format, RunOK: &runOKVal})
+	pub, err := resource.CommitTree(pkgDir, seedName, start, resource.CommitOpts{Format: loaded.Package.Package.Format, RunOK: &runOKVal, Pin: loaded.Package.Publish.Pin})
 	if err != nil {
 		st.Status, st.Log, st.EndedAt = "failure", log.String()+"\n"+err.Error(), taskboard.PtrTime(opt.Now())
 		return st, "", err
@@ -481,7 +570,7 @@ func snapshotWorktree(loaded workflow.Loaded, workRoot string, seeds []taskboard
 	return wt
 }
 
-func finishTask(loaded workflow.Loaded, host string, start, end time.Time, status, summary, digest string, job taskboard.Job, wt *taskboard.Worktree) taskboard.Task {
+func finishTask(loaded workflow.Loaded, host string, start, end time.Time, status, summary, digest string, job taskboard.Job, wt *taskboard.Worktree, d *DispatchInfo, runID string) taskboard.Task {
 	name := loaded.Prepare.Metadata.Name
 	if name == "" {
 		name = loaded.Workflow.Name
@@ -491,26 +580,50 @@ func finishTask(loaded workflow.Loaded, host string, start, end time.Time, statu
 	}
 	ann := []taskboard.Annotation{{
 		Level:   "notice",
-		Message: taskboard.Text{ZH: "本机执行（网格下发尚未实现）。", EN: "Ran locally; mesh dispatch is not implemented yet."},
+		Message: taskboard.Text{ZH: "本机执行（ptc submit 未指定 --target）。", EN: "Ran locally (ptc submit without --target)."},
 	}}
+	actor, target, source, event := host, host, "local-submit", "workflow_dispatch"
+	var submitter *taskboard.Party
+	if d != nil {
+		sub := d.Submitter.Node
+		if sub == "" {
+			sub = d.Submitter.PeerID
+		}
+		exe := d.Executor.Node
+		if exe == "" {
+			exe = host
+		}
+		actor, target, source, event = sub, exe, "mesh-dispatch", "mesh_dispatch"
+		p := d.Submitter
+		submitter = &p
+		ann = []taskboard.Annotation{{
+			Level:   "notice",
+			Message: taskboard.Text{ZH: "由 " + sub + " 经网格下发，在 " + exe + " 执行（作业 " + d.JobID + "）。", EN: "Dispatched over the mesh by " + sub + "; ran on " + exe + " (job " + d.JobID + ")."},
+		}}
+	}
 	if digest != "" {
 		ann = append(ann, taskboard.Annotation{Level: "notice", Message: taskboard.Text{ZH: "结果种子 " + digest, EN: "Result seed " + digest}})
 	}
-	return taskboard.Task{
-		ID:          "run-" + job.StartedAt.UTC().Format("20060102T150405Z") + "-" + loaded.JobName,
+	t := taskboard.Task{
+		ID:          firstNonEmpty(runID, TaskID(*job.StartedAt, loaded.JobName)),
 		Name:        taskboard.Text{ZH: name, EN: name},
 		Status:      status,
-		Event:       "workflow_dispatch",
-		Actor:       host,
-		Target:      host,
+		Event:       event,
+		Actor:       actor,
+		Target:      target,
 		StartedAt:   taskboard.PtrTime(start),
 		EndedAt:     taskboard.PtrTime(end),
 		Summary:     taskboard.Text{ZH: summary, EN: summary},
 		Annotations: ann,
 		Jobs:        []taskboard.Job{job},
-		Source:      "local-submit",
+		Source:      source,
+		Submitter:   submitter,
 		Worktree:    wt,
 	}
+	if d != nil {
+		t.Node, t.PeerID = d.Executor.Node, d.Executor.PeerID
+	}
+	return t
 }
 
 func writeTask(dir string, t taskboard.Task) (string, error) {
@@ -523,4 +636,13 @@ func writeTask(dir string, t taskboard.Task) (string, error) {
 		return "", err
 	}
 	return path, os.WriteFile(path, b, 0o644)
+}
+
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
