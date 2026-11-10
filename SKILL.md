@@ -41,4 +41,6 @@ ptc policy service exec|files|relay on|off
 
 ## 尚未提供（不要调用）
 
-`ptc dataset`、`ptc gc`、`ptc submit`、`ptc status`、`ptc logs`、`ptc artifacts`、`ptc install --ssh`、`ptc update` 属于后续阶段。若用户需要这些，说明当前是 P0，并指向设计文档。
+`ptc dataset`、`ptc gc`、`ptc submit`、`ptc status`、`ptc logs`、`ptc artifacts`、`ptc install --ssh`、`ptc update` 属于后续阶段。命令的参数、默认值和输出格式见仓库内 `docs/CLI.md`，需与当前 `ptc version` 一致。
+
+若用户需要这些，说明当前是 P0，并指向设计文档。

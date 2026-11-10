@@ -59,6 +59,9 @@ docker compose -f docker/docker-compose.yml down -v
 
 ## 命令（P0）
 
+完整参数、默认值、输出格式和本机 API 见 [docs/CLI.md](docs/CLI.md)。
+
+
 | 命令 | 作用 |
 | --- | --- |
 | `ptc daemon` | 监听固定端口，加入组网 |
