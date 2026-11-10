@@ -2,7 +2,23 @@
 
 去中心局域网任务分发：每台机器跑同一个 daemon，按内容哈希按需拉取测试数据，把 CUDA 程序派到指定机器。跨网段由白名单网关转发。
 
-当前实现到 **P0：组网**。数据面、任务工作树、WebUI、SSH 安装与网格升级按设计分期后续再做。
+## 当前进度
+
+已完成：
+
+- **P0 组网**：受信任 CIDR、mDNS 与端口探测、网关扫描与中转、服务目录、本机白 / 黑名单与功能开关。
+- **任务大纲与本机执行**：借鉴 Actions 的 job/step，首步必须是 Prepare、末步必须是 Package result；`ptc submit` 在本机按 Prepare → run → Package result 执行，并保存工作树快照。
+- **种子**：目录按整体计算 DirDigest（目录单元），结果包与 Prepare 种子都按摘要发布。
+- **网格共享**：运行记录与资源清单在全网可查；目录种子经 libp2p 以 tar 下载，可跨中转。
+- **只读看板**：中英双语 WebUI，任务 / 资源 / 节点分栏；与 CLI 共用本机 `/api/v1` 和 `internal/query`，查询结果同源。
+- **Windows 原生节点**：`docker/run-host-node.ps1` 让本机真实 GPU 以 `host` 节点加入 Docker 网格。
+
+未完成：
+
+- **P1**：bitswap、filestore、pin（当前只有按摘要整体下载，没有分块交换）。
+- **P2 网格下发**：`ptc submit` 尚不能把作业派到指定远端节点。
+- **P3**：官方完整产品界面（当前只有只读看板）。
+- **P4**：SSH 首次安装、网格升级与回退。
 
 设计草案：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。离线摘要见 [docs/DESIGN.md](docs/DESIGN.md)。
 
@@ -57,7 +73,7 @@ python3 docker/p0-assert.py
 docker compose -f docker/docker-compose.yml down -v
 ```
 
-## 命令（P0）
+## 命令
 
 完整参数、默认值、输出格式和本机 API 见 [docs/CLI.md](docs/CLI.md)。P0 测试报告见 [docs/TEST-REPORT-P0.md](docs/TEST-REPORT-P0.md)。
 
