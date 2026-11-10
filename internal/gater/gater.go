@@ -45,6 +45,9 @@ func (g *CIDR) InterceptAddrDial(_ peer.ID, addr ma.Multiaddr) (allow bool) {
 }
 
 func (g *CIDR) InterceptAccept(addrs network.ConnMultiaddrs) (allow bool) {
+	if isCircuit(addrs.RemoteMultiaddr()) {
+		return true
+	}
 	ip, ok := ipFromAddr(addrs.RemoteMultiaddr())
 	if !ok {
 		g.Log.Debug("reject accept: no remote IP")

@@ -1,13 +1,19 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/control"
 	"github.com/peer-task-control/ptc/internal/policy"
+	"github.com/peer-task-control/ptc/internal/query"
+	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/peer-task-control/ptc/internal/taskboard"
 	"github.com/peer-task-control/ptc/internal/version"
 )
 
@@ -17,6 +23,10 @@ type Node interface {
 	Peers() []catalog.Entry
 	Policy() *policy.Store
 	PersistPolicy() error
+	CollectRuns(ctx context.Context) []taskboard.Task
+	CollectResources(ctx context.Context) []resource.Info
+	Resource(ctx context.Context, digest string) (resource.Info, error)
+	OpenResource(ctx context.Context, digest string) (resource.Blob, error)
 }
 
 type Server struct {
@@ -31,6 +41,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/peers", s.peers)
 	mux.HandleFunc("GET /api/v1/policy", s.getPolicy)
 	mux.HandleFunc("POST /api/v1/policy", s.postPolicy)
+	mux.HandleFunc("GET /api/v1/runs", s.runs)
+	mux.HandleFunc("GET /api/v1/resources", s.resources)
+	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}", s.resource)
+	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}/content", s.resourceContent)
 	return mux
 }
 
@@ -97,6 +111,64 @@ func (s *Server) postPolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, viewPolicy(p))
+}
+
+func (s *Server) runs(w http.ResponseWriter, r *http.Request) {
+	tasks := s.Node.CollectRuns(r.Context())
+	f := query.TaskFilterFrom(r.URL.Query())
+	if f.Active() {
+		tasks = query.FilterTasks(tasks, f)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+}
+
+func (s *Server) resources(w http.ResponseWriter, r *http.Request) {
+	local := s.Node.LocalEntry()
+	seeds := s.Node.CollectResources(r.Context())
+	f := query.ResourceFilterFrom(r.URL.Query())
+	if f.Active() {
+		seeds = query.FilterResources(seeds, f)
+	}
+	writeJSON(w, http.StatusOK, resource.List{
+		Viewer: local.Name,
+		PeerID: local.PeerID,
+		Seeds:  seeds,
+	})
+}
+
+func (s *Server) resource(w http.ResponseWriter, r *http.Request) {
+	digest := "sha256:" + r.PathValue("hex")
+	info, err := s.Node.Resource(r.Context(), digest)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) resourceContent(w http.ResponseWriter, r *http.Request) {
+	digest := "sha256:" + r.PathValue("hex")
+	blob, err := s.Node.OpenResource(r.Context(), digest)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	defer blob.Body.Close()
+	if blob.ContentType != "" {
+		w.Header().Set("Content-Type", blob.ContentType)
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	name := blob.Name
+	if name == "" {
+		name = resource.Filename(resource.Seed{Digest: digest, Kind: blob.Kind, Name: blob.Name})
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name))
+	if blob.Size > 0 {
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", blob.Size))
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, blob.Body)
 }
 
 func viewPolicy(p *policy.Store) control.PolicyView {

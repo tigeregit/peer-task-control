@@ -2,8 +2,10 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/config"
 	"github.com/peer-task-control/ptc/internal/control"
+	"github.com/peer-task-control/ptc/internal/taskboard"
 )
 
 func freePort(t *testing.T) int {
@@ -183,5 +186,43 @@ func TestPolicyDenyReason(t *testing.T) {
 	d := n.Store.Check("files", "", "evil", net.ParseIP("127.0.0.1"))
 	if d.Allow || d.Reason == "" {
 		t.Fatalf("expected deny with reason, got %+v", d)
+	}
+}
+
+func TestCollectPeerRuns(t *testing.T) {
+	if !canBind("127.0.0.1") || !canBind("127.0.0.2") {
+		t.Skip("need 127.0.0.1 and 127.0.0.2")
+	}
+	cidrs := []string{"127.0.0.0/8"}
+	a := startTestNode(t, "node-a", "127.0.0.1", false, cidrs)
+	b := startTestNode(t, "node-b", "127.0.0.2", true, cidrs)
+	dir := filepath.Join(a.Cfg.DataDir, "runs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	task := taskboard.Task{ID: "run-from-a", Name: taskboard.Text{ZH: "来自 A", EN: "from A"}, Status: "success", Source: "local-submit"}
+	bjson, err := json.Marshal(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "run-from-a.json"), bjson, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Discover A from B, then B should collect A's run.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := b.Probe(ctx, listenHostPort(a)); err != nil {
+		t.Fatal(err)
+	}
+	waitPeers(t, b, 1)
+	got := b.CollectRuns(ctx)
+	var found bool
+	for _, tsk := range got {
+		if tsk.ID == "run-from-a" && tsk.Node == "node-a" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("gateway-side node did not see peer run: %+v", got)
 	}
 }

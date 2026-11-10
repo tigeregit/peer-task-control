@@ -52,3 +52,28 @@ func TestParsePSKRejectsShort(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestScanHostsTrustResolvedIP(t *testing.T) {
+	c := Defaults()
+	c.TrustedCIDRs = []string{"10.87.0.0/24"}
+	c.ScanHosts = []string{"127.0.0.1", "localhost:19999"}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.InTrustedIP(net.ParseIP("10.87.0.2")) {
+		t.Fatal("trusted CIDR should still match")
+	}
+	if !c.InTrustedIP(net.ParseIP("127.0.0.1")) {
+		t.Fatal("scan_hosts loopback should be trusted")
+	}
+	if c.InTrustedIP(net.ParseIP("8.8.8.8")) {
+		t.Fatal("unrelated public IP should be rejected")
+	}
+	ports := c.ScanHostPorts(18765)
+	if len(ports) != 2 {
+		t.Fatalf("ScanHostPorts = %v", ports)
+	}
+	if ports[0] != "127.0.0.1:18765" || ports[1] != "localhost:19999" {
+		t.Fatalf("ScanHostPorts = %v", ports)
+	}
+}

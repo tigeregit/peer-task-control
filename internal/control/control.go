@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/peer-task-control/ptc/internal/catalog"
 	"github.com/peer-task-control/ptc/internal/config"
+	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/peer-task-control/ptc/internal/taskboard"
 )
 
 type LockFile struct {
@@ -149,4 +152,108 @@ func (c *Client) ApplyPolicy(ch PolicyChange) (PolicyView, error) {
 	var p PolicyView
 	err := c.post("/api/v1/policy", ch, &p)
 	return p, err
+}
+
+func (c *Client) Runs() ([]taskboard.Task, error) {
+	var out struct {
+		Tasks []taskboard.Task `json:"tasks"`
+	}
+	hc := *c.HTTP
+	if hc.Timeout < 15*time.Second {
+		hc.Timeout = 15 * time.Second
+	}
+	tmp := &Client{Base: c.Base, HTTP: &hc}
+	err := tmp.get("/api/v1/runs", &out)
+	return out.Tasks, err
+}
+
+func (c *Client) withTimeout(d time.Duration) *Client {
+	if c.HTTP != nil && c.HTTP.Timeout >= d {
+		return c
+	}
+	hc := http.Client{Timeout: d}
+	if c.HTTP != nil {
+		hc = *c.HTTP
+		hc.Timeout = d
+	}
+	return &Client{Base: c.Base, HTTP: &hc}
+}
+
+func (c *Client) Resources() (resource.List, error) {
+	var out resource.List
+	err := c.withTimeout(20*time.Second).get("/api/v1/resources", &out)
+	return out, err
+}
+
+func (c *Client) Resource(digest string) (resource.Info, error) {
+	hex := resource.Hex(digest)
+	if hex == "" {
+		return resource.Info{}, fmt.Errorf("invalid digest")
+	}
+	var out resource.Info
+	err := c.withTimeout(20*time.Second).get("/api/v1/resources/sha256/"+hex, &out)
+	return out, err
+}
+
+func (c *Client) ResourceContent(digest string) (resource.Blob, error) {
+	hex := resource.Hex(digest)
+	if hex == "" {
+		return resource.Blob{}, fmt.Errorf("invalid digest")
+	}
+	hc := http.Client{Timeout: 5 * time.Minute}
+	if c.HTTP != nil {
+		hc = *c.HTTP
+		hc.Timeout = 5 * time.Minute
+	}
+	resp, err := hc.Get(c.Base + "/api/v1/resources/sha256/" + hex + "/content")
+	if err != nil {
+		return resource.Blob{}, err
+	}
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resource.Blob{}, fmt.Errorf("%s: %s", resp.Status, bytes.TrimSpace(body))
+	}
+	name := resp.Header.Get("Content-Disposition")
+	filename := ""
+	if i := indexFilename(name); i != "" {
+		filename = i
+	}
+	ct := resp.Header.Get("Content-Type")
+	var size int64
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		fmt.Sscanf(cl, "%d", &size)
+	}
+	kind := "blob"
+	if ct == "application/x-tar" || (filename != "" && len(filename) >= 4 && filename[len(filename)-4:] == ".tar") {
+		kind = "tree"
+	}
+	return resource.Blob{
+		Digest:      resource.Normalize(digest),
+		Name:        filename,
+		Kind:        kind,
+		Size:        size,
+		ContentType: ct,
+		Body:        resp.Body,
+	}, nil
+}
+
+func indexFilename(disp string) string {
+	const key = "filename="
+	i := strings.Index(strings.ToLower(disp), key)
+	if i < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(disp[i+len(key):])
+	if strings.HasPrefix(rest, "\"") {
+		rest = rest[1:]
+		if j := strings.IndexByte(rest, '"'); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
+	}
+	if j := strings.IndexByte(rest, ';'); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.TrimSpace(rest)
 }

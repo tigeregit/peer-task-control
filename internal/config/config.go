@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -40,9 +41,17 @@ type Config struct {
 	Policy       Policy        `yaml:"policy"`
 	ScanInterval time.Duration `yaml:"scan_interval"`
 	DisableMDNS  bool          `yaml:"disable_mdns,omitempty"`
-	Path         string        `yaml:"-"`
-	TrustedNets  []*net.IPNet  `yaml:"-"`
-	PSKBytes     []byte        `yaml:"-"`
+	// ScanHosts are extra probe targets (hostname, IP, or host:port) the
+	// gateway should dial in addition to trusted CIDR scans. Resolved IPs
+	// are also admitted by the connection gater, so a Docker Desktop host
+	// node can be reached via host.docker.internal without scanning that
+	// whole virtual subnet.
+	ScanHosts    []string     `yaml:"scan_hosts,omitempty"`
+	Path         string       `yaml:"-"`
+	TrustedNets  []*net.IPNet `yaml:"-"`
+	PSKBytes     []byte       `yaml:"-"`
+	mu           sync.RWMutex
+	scanHostNets []*net.IPNet
 }
 
 func DefaultDataDir() string {
@@ -135,6 +144,7 @@ func (c *Config) Normalize() error {
 		}
 		c.PSKBytes = b
 	}
+	c.ResolveScanHosts()
 	return nil
 }
 
@@ -172,20 +182,101 @@ func (c *Config) InTrustedIP(ip net.IP) bool {
 		return false
 	}
 	if ip.IsLoopback() {
-		// Loopback is accepted only when a loopback CIDR is configured.
+		// Loopback is accepted only when a loopback CIDR is configured
+		// or a scan_hosts entry resolved to a loopback address.
 		for _, n := range c.TrustedNets {
 			if n.Contains(ip) {
 				return true
 			}
 		}
-		return false
+		return c.inScanHostNet(ip)
 	}
 	for _, n := range c.TrustedNets {
 		if n.Contains(ip) {
 			return true
 		}
 	}
+	return c.inScanHostNet(ip)
+}
+
+// ResolveScanHosts looks up scan_hosts and caches their IPs as /32 or /128
+// nets used by InTrustedIP. Safe to call again when DNS might have changed.
+func (c *Config) ResolveScanHosts() {
+	var nets []*net.IPNet
+	for _, raw := range c.ScanHosts {
+		host, _, ok := splitScanHost(raw)
+		if !ok {
+			continue
+		}
+		if ip := net.ParseIP(host); ip != nil {
+			nets = append(nets, ipNet(ip))
+			continue
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			continue
+		}
+		for _, ip := range ips {
+			nets = append(nets, ipNet(ip))
+		}
+	}
+	c.mu.Lock()
+	c.scanHostNets = nets
+	c.mu.Unlock()
+}
+
+// ScanHostPorts returns host:port targets from scan_hosts, filling in
+// defaultPort when an entry has no port.
+func (c *Config) ScanHostPorts(defaultPort int) []string {
+	port := fmt.Sprintf("%d", defaultPort)
+	var out []string
+	for _, raw := range c.ScanHosts {
+		host, p, ok := splitScanHost(raw)
+		if !ok {
+			continue
+		}
+		if p == "" {
+			p = port
+		}
+		out = append(out, net.JoinHostPort(host, p))
+	}
+	return out
+}
+
+func (c *Config) inScanHostNet(ip net.IP) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, n := range c.scanHostNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
 	return false
+}
+
+func splitScanHost(raw string) (host, port string, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", false
+	}
+	if h, p, err := net.SplitHostPort(raw); err == nil {
+		return h, p, true
+	}
+	// A bare IPv6 address is not host:port.
+	if strings.Count(raw, ":") > 1 && !strings.HasPrefix(raw, "[") {
+		if net.ParseIP(raw) == nil {
+			return "", "", false
+		}
+		return raw, "", true
+	}
+	return raw, "", true
+}
+
+func ipNet(ip net.IP) *net.IPNet {
+	if v4 := ip.To4(); v4 != nil {
+		return &net.IPNet{IP: v4, Mask: net.CIDRMask(32, 32)}
+	}
+	return &net.IPNet{IP: ip.To16(), Mask: net.CIDRMask(128, 128)}
 }
 
 func (c *Config) Save() error {

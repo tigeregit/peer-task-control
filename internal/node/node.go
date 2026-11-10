@@ -90,7 +90,10 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 		opts = append(opts, libp2p.PrivateNetwork(cfg.PSKBytes))
 	}
 	if cfg.Services.Relay {
-		opts = append(opts, libp2p.EnableRelayService())
+		// LAN relays are not AutoNAT-public; force the hop service to start anyway.
+		opts = append(opts, libp2p.EnableRelayService(lanRelayOptions()...), libp2p.ForceReachabilityPublic())
+	} else {
+		opts = append(opts, libp2p.ForceReachabilityPrivate())
 	}
 
 	h, err := libp2p.New(opts...)
@@ -116,6 +119,8 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	n.Catalog.Put(n.LocalEntry())
 
 	h.SetStreamHandler(ProtocolCatalog, n.handleCatalog)
+	h.SetStreamHandler(ProtocolRuns, n.handleRuns)
+	h.SetStreamHandler(ProtocolResources, n.handleResources)
 	h.Network().Notify((*netNotifee)(n))
 
 	if !cfg.DisableMDNS {
@@ -147,6 +152,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	}
 
 	n.RequestScan()
+	n.startRelayLoop()
 	go n.scanLoop()
 
 	n.Log.Info("ptc daemon started",
@@ -308,6 +314,7 @@ func (n *Node) handleCatalog(s network.Stream) {
 	if added > 0 {
 		n.Log.Info("catalog updated", "added_or_changed", added, "from", s.Conn().RemotePeer())
 		n.broadcastExcept(s.Conn().RemotePeer())
+		go n.reserveWithRelays(n.ctx)
 	}
 }
 
@@ -335,6 +342,7 @@ func (n *Node) exchange(ctx context.Context, id peer.ID) error {
 	if added > 0 {
 		n.Log.Info("catalog updated", "added_or_changed", added, "from", id)
 		n.broadcastExcept(id)
+		go n.reserveWithRelays(n.ctx)
 	}
 	return nil
 }
@@ -455,22 +463,42 @@ func (n *Node) scanLoop() {
 }
 
 func (n *Node) runScan() {
+	n.Cfg.ResolveScanHosts()
 	targets := n.scanTargets()
-	if len(targets) == 0 {
+	hostports := make([]string, 0, len(targets)+len(n.Cfg.ScanHosts))
+	port := n.Cfg.ListenPort()
+	seen := map[string]struct{}{}
+	for _, ip := range targets {
+		hp := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port))
+		if _, ok := seen[hp]; ok {
+			continue
+		}
+		seen[hp] = struct{}{}
+		hostports = append(hostports, hp)
+	}
+	for _, hp := range n.Cfg.ScanHostPorts(port) {
+		if n.isSelfHostPort(hp) {
+			continue
+		}
+		if _, ok := seen[hp]; ok {
+			continue
+		}
+		seen[hp] = struct{}{}
+		hostports = append(hostports, hp)
+	}
+	if len(hostports) == 0 {
 		return
 	}
-	n.Log.Debug("scanning peers", "targets", len(targets))
+	n.Log.Debug("scanning peers", "targets", len(hostports))
 	sem := make(chan struct{}, scanConcurrency)
 	var wg sync.WaitGroup
-	port := n.Cfg.ListenPort()
-	for _, ip := range targets {
-		ip := ip
+	for _, hostport := range hostports {
+		hostport := hostport
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			hostport := net.JoinHostPort(ip.String(), fmt.Sprintf("%d", port))
 			ctx, cancel := context.WithTimeout(n.ctx, dialTimeout)
 			defer cancel()
 			if err := n.Probe(ctx, hostport); err != nil {
