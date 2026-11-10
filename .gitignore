@@ -21,3 +21,4 @@ docker/ptc-windows.exe
 
 # Native Windows host node data (identity, runs, packages)
 docker/testdata/host-data/
+vendor/
