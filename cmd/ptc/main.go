@@ -35,7 +35,7 @@ func rootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&cfgPath, "config", defaultCfg, "path to config.yaml")
 	cmd.PersistentFlags().StringVar(&dataDir, "data-dir", "", "override data directory")
 	cmd.PersistentFlags().StringVar(&apiAddr, "api", "", "local daemon API host:port (default: read daemon.lock)")
-	cmd.AddCommand(daemonCmd(), peersCmd(), policyCmd(), skillCmd(), versionCmd())
+	cmd.AddCommand(daemonCmd(), peersCmd(), policyCmd(), skillCmd(), webuiCmd(), submitCmd(), resourcesCmd(), tasksCmd(), versionCmd())
 	return cmd
 }
 
