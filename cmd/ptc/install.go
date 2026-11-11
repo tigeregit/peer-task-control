@@ -21,8 +21,9 @@ type sshDeploymentFlags struct {
 func installCmd() *cobra.Command {
 	var flags sshDeploymentFlags
 	cmd := &cobra.Command{
-		Use:   "install --ssh HOST",
-		Short: "Install a verified ptc release binary on one host over SSH",
+		Use:              "install --ssh HOST",
+		Short:            "Install a verified ptc release binary on one host over SSH",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) { maybeWarnStaleSkill(cmd) },
 		Long: `Install a verified ptc release binary on one host over SSH.
 
 The target OS and architecture are detected over SSH. Supported targets are
@@ -82,6 +83,9 @@ func runSSHDeployment(cmd *cobra.Command, flags sshDeploymentFlags, action strin
 	}
 	if err := ssh.Replace(cmd.Context(), flags.remotePath, artifact); err != nil {
 		return err
+	}
+	if err := ssh.SyncSkill(cmd.Context(), flags.remotePath, platform); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill sync on %s failed: %v\n", flags.host, err)
 	}
 	target := flags.remotePath
 	if target == "" {

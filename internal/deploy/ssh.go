@@ -463,3 +463,50 @@ actual=${actual%% *}
 if [ "$actual" != "$expected" ]; then echo "installed binary checksum mismatch" >&2; exit 1; fi
 if [ -e "$backup" ] || [ -L "$backup" ]; then rm -f "$backup"; fi
 trap - EXIT HUP INT TERM`
+
+// SyncSkill runs the remote binary's `skill sync` so that host gets the
+// user-scope Agent Skills directory for this CLI version. It does not
+// roll back a completed binary replacement.
+func (s SSHOptions) SyncSkill(ctx context.Context, path, platform string) error {
+	if err := ValidateSSHOptions(s); err != nil {
+		return err
+	}
+	if err := ValidateRemotePathForPlatform(path, platform); err != nil {
+		return err
+	}
+	if platform == "windows/amd64" {
+		script := windowsSkillSyncScript(path)
+		if err := s.run(ctx, []string{powershellRemoteCommand(script)}, nil, nil); err != nil {
+			return fmt.Errorf("remote skill sync: %w", err)
+		}
+		return nil
+	}
+	remote := "sh -c " + shellQuote(unixSkillSyncScript) + " ptc " + shellQuote(path)
+	if err := s.run(ctx, []string{remote}, nil, nil); err != nil {
+		return fmt.Errorf("remote skill sync: %w", err)
+	}
+	return nil
+}
+
+func windowsSkillSyncScript(path string) string {
+	return strings.NewReplacer("__TARGET_LITERAL__", powerShellQuote(path)).Replace(windowsSkillSyncTemplate)
+}
+
+const unixSkillSyncScript = `set -eu
+target=$1
+if [ -z "$target" ]; then target="${HOME}/.local/bin/ptc"; fi
+case "$target" in /*) ;; *) echo "target must be absolute" >&2; exit 2 ;; esac
+"$target" skill sync`
+
+const windowsSkillSyncTemplate = `$ErrorActionPreference = 'Stop'
+$target = __TARGET_LITERAL__
+if ([string]::IsNullOrWhiteSpace($target)) {
+  $base = $env:LOCALAPPDATA
+  if ([string]::IsNullOrWhiteSpace($base)) { $base = $env:USERPROFILE }
+  if ([string]::IsNullOrWhiteSpace($base)) { throw 'No local user profile directory is available' }
+  $target = Join-Path $base 'Programs\ptc\ptc.exe'
+}
+$target = [System.IO.Path]::GetFullPath($target)
+$out = & $target skill sync 2>&1
+if ($LASTEXITCODE -ne 0) { throw "skill sync failed: $out" }
+`

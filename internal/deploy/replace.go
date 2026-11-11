@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -96,15 +97,18 @@ func BinaryVersion(exe string) (string, error) {
 	return probeBinaryVersion(context.Background(), exe)
 }
 
-// WriteSkill writes the version-bound skill of exe to SKILL.md next to it.
-func WriteSkill(exe string) error {
+// SyncSkill runs `<exe> skill sync` so the new binary writes its bundled
+// skill into the user-scope Agent Skills directory
+// (~/.agents/skills/peer-task-control).
+func SyncSkill(exe string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, exe, "skill", "print").Output()
+	cmd := exec.CommandContext(ctx, exe, "skill", "sync")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s skill print: %w", exe, err)
+		return fmt.Errorf("%s skill sync: %w: %s", exe, err, strings.TrimSpace(string(out)))
 	}
-	return os.WriteFile(filepath.Join(filepath.Dir(exe), "SKILL.md"), out, 0o644)
+	return nil
 }
 
 // RestartCommand returns how to restart an installed daemon from outside

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,7 +19,20 @@ import (
 
 // fakePtc is a shell script standing in for a ptc binary of version v.
 func fakePtc(v string) []byte {
-	return []byte(fmt.Sprintf("#!/bin/sh\ncase \"$1\" in version) echo %s;; skill) echo '# skill %s';; esac\n", v, v))
+	index := "---\nname: peer-task-control\nmetadata:\n  version: \"" + v + "\"\n---\n# skill " + v + "\n"
+	script := "#!/bin/sh\n" +
+		"case \"$1\" in\n" +
+		"version) echo " + v + ";;\n" +
+		"skill)\n" +
+		"  if [ \"$2\" = \"sync\" ]; then\n" +
+		"    dir=\"${HOME}/.agents/skills/peer-task-control\"\n" +
+		"    mkdir -p \"$dir\"\n" +
+		"    printf '%s' '" + index + "' > \"$dir/SKILL.md\"\n" +
+		"    exit 0\n" +
+		"  fi\n" +
+		"  echo '# skill " + v + "';;\n" +
+		"esac\n"
+	return []byte(script)
 }
 
 func makeManaged(t *testing.T, n *Node) string {
@@ -45,12 +57,15 @@ func makeManaged(t *testing.T, n *Node) string {
 
 // The initiator stages a binary from an offline release dir, a managed
 // target pulls it over bitswap, replaces itself (keeping .prev), refreshes
-// SKILL.md and asks for a restart; a node with accept_remote off refuses;
+// the user-scope skill and asks for a restart; a node with accept_remote off refuses;
 // an unmanaged node is skipped.
 func TestMeshUpdate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a shell-script stand-in binary")
 	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	oldWait := updateRejoinWait
 	updateRejoinWait = time.Second
 	defer func() { updateRejoinWait = oldWait }()
@@ -140,8 +155,9 @@ func TestMeshUpdate(t *testing.T) {
 	if p, _ := os.ReadFile(deploy.PrevPath(exe)); string(p) != string(fakePtc("0.3.0")) {
 		t.Fatal("previous binary not kept")
 	}
-	if s, _ := os.ReadFile(filepath.Join(filepath.Dir(exe), "SKILL.md")); !strings.Contains(string(s), "0.3.1") {
-		t.Fatalf("skill not refreshed: %q", s)
+	skillPath := filepath.Join(home, ".agents", "skills", "peer-task-control", "SKILL.md")
+	if s, err := os.ReadFile(skillPath); err != nil || !strings.Contains(string(s), "0.3.1") {
+		t.Fatalf("skill not refreshed: %q %v", s, err)
 	}
 	if in, _ := deploy.Load(tgt.Cfg.DataDir); in.Version != "0.3.1" || in.Previous != version.Version {
 		t.Fatalf("install.json: %+v (previous want %s)", in, version.Version)

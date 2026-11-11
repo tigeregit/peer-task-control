@@ -23,8 +23,9 @@ func updateCmd() *cobra.Command {
 	var batch int
 	var assetsDir string
 	cmd := &cobra.Command{
-		Use:   "update [--ssh HOST | --mesh]",
-		Short: "Update ptc locally, on one host over SSH, or across the mesh",
+		Use:              "update [--ssh HOST | --mesh]",
+		Short:            "Update ptc locally, on one host over SSH, or across the mesh",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) { maybeWarnStaleSkill(cmd) },
 		Long: `Update the local ptc executable, one host's binary over SSH, or install-managed
 peers on the mesh.
 
@@ -106,6 +107,9 @@ func runLocalUpdate(cmd *cobra.Command, flags sshDeploymentFlags, noRestart bool
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Updated local ptc %s -> %s (%s) at %s\n",
 		result.OldVersion, result.NewVersion, result.Platform, result.Path)
+	if err := deploy.SyncSkill(result.Path); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: skill sync failed: %v\n", err)
+	}
 	if err := deploy.RecordInstall(updateDataDir(), result.Path, result.NewVersion); err != nil {
 		return fmt.Errorf("binary updated, but install.json was not recorded: %w", err)
 	}

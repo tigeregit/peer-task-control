@@ -38,7 +38,7 @@
 
 3. 描述里写：行为变化、如何验证、是否需要改 skill 或 example 配置。
 4. 协议或发现逻辑的变化，要同步 `docs/DESIGN.md` 和 `docs/zh/DESIGN.md`；若与设计 Page 冲突，先更新 Page 再合入。
-5. 若改了 agent skill：保持仓库根目录 `SKILL.md` 与 `cmd/ptc/skill/SKILL.md` 一致，主题文件放在 `cmd/ptc/skill/`，并由 `go:embed` 打进二进制。skill 文本只使用英文。`ptc skill print` 输出索引，`ptc skill print <topic>` 输出主题。不要让工作目录中的旧 skill 覆盖二进制内嵌 usage。
+5. 若改了 agent skill：请编辑 `skills/peer-task-control/`（目录名必须与 frontmatter 中的 `name: peer-task-control` 一致）。较长内容放在 `references/`，`SKILL.md` 保持简短。skill pack 只使用英文，并由该目录嵌入二进制。`ptc skill sync` 以及成功的 `ptc update` / `ptc install` 会把它写入 `~/.agents/skills/peer-task-control/`。将 `metadata.version` 设为与 `internal/version/version.go` 相同的值；Release 构建会在 sync/read 时写入正在运行的二进制版本。不要把仓库根目录或可执行文件旁残留的 `SKILL.md` 当作权威来源。
 
 Bitswap 的默认测试覆盖索引分页、层级进位、异常索引和标准 Boxo 互通。修改大资源导出路径时，额外运行超过旧上限的 3GiB 流式测试，验证 SHA256 和源离线后的持久缓存重开读取：
 
@@ -52,7 +52,7 @@ Remove-Item Env:\PTC_TEST_LARGE_BITSWAP
 
 ## 发版
 
-1. 开发版号在 `internal/version/version.go`；Release 构建通过 `-ldflags -X github.com/tigeregit/peer-task-control/internal/version.Version=<标签去掉 v>` 写入准确版本。仓库 `SKILL.md` 必须与内嵌的 `cmd/ptc/skill/SKILL.md` 一致，`ptc skill print` 追加实际绑定版本；不要让工作目录中的旧 skill 覆盖二进制内嵌 usage。
+1. 开发版号在 `internal/version/version.go`；Release 构建通过 `-ldflags -X github.com/tigeregit/peer-task-control/internal/version.Version=<标签去掉 v>` 写入准确版本。权威 skill pack 是 `skills/peer-task-control/`；源码索引里的 `metadata.version` 应与开发版号一致，sync/read 时会写入正在运行的二进制版本。不要把仓库根目录或可执行文件旁残留的 `SKILL.md` 当作权威来源。
 2. 在 `docs/release-notes/v<版本>.md` 写发布说明，并同步 `docs/zh/release-notes/` 下的中文版本。英文文件名必须与即将推送的标签一致。
 3. 合并到 `main` 后打标签并推送：`git tag v0.2.0-p2 && git push origin v0.2.0-p2`。
 4. GitHub Actions 工作流 `.github/workflows/release.yml` 会交叉编译二进制、打包 skill、生成 `SHA256SUMS` 并创建 Release，同时尝试把镜像推到 GHCR。标签名含 `-`（如 `-p2`、`-rc`）时自动标为预发布，且不会打 `latest` 镜像标签。

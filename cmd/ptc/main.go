@@ -47,8 +47,9 @@ func rootCmd() *cobra.Command {
 
 func versionCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "version",
-		Short: "Print the binary version",
+		Use:              "version",
+		Short:            "Print the binary version",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) { maybeWarnStaleSkill(cmd) },
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Println(version.Version)
 		},

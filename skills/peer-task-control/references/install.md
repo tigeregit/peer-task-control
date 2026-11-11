@@ -30,7 +30,9 @@ to `--mesh` only. SSH install does not write a remote `install.json`, so
 SSH-only nodes are not mesh-update targets until a local `ptc update`
 records the install. Refuse mesh updates with `ptc policy update off`.
 
-After `ptc update`, reread the skill from the new binary
-(`ptc skill print` / `ptc skill print <topic>`). The pack is embedded in
-that binary; do not keep using a leftover `SKILL.md` from the checkout or
-the previous install. See [docs/CLI.md](docs/CLI.md).
+After `ptc update` or `ptc install`, refresh the installed skill with
+`ptc skill sync` (local and mesh updates also do this). Prefer the copy at
+`~/.agents/skills/peer-task-control/` (Windows: `%USERPROFILE%\.agents\skills\peer-task-control\`).
+If that directory is missing, `ptc skill read [references/...]` prints the
+pack bundled in the new binary. Do not keep using a leftover repository-root
+or next-to-binary `SKILL.md`. See [docs/CLI.md](docs/CLI.md).

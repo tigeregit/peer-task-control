@@ -4,16 +4,23 @@ description: >
   Dispatch CUDA and other workflows across a trusted-LAN ptc mesh.
   Use when the user wants to run ptc, submit or cancel a job, pick a GPU
   node, inspect tasks/resources/queue/disk, or clean local storage.
+metadata:
+  version: "0.3.0-dev"
 ---
 
 # peer-task-control
 
-Version-bound skill pack for **0.3.0-dev**.
+Prefer the installed copy at `~/.agents/skills/peer-task-control/`
+(Windows: `%USERPROFILE%\.agents\skills\peer-task-control\`).
+`ptc skill sync`, and a successful `ptc update` or `ptc install`, refresh
+that directory from the pack bundled in this binary. Check
+`metadata.version` against `ptc version`. Load files under `references/`
+only as needed.
 
-`ptc skill print` and `ptc skill print [topic]` always print the copy
-embedded in this binary and append `bound-to-version`. Check it against
-`ptc version`. Do not use a checkout or leftover `SKILL.md` after
-`ptc update`. List topics with `ptc skill list`. Load only the topic you need.
+If the on-disk skill is missing, you may use `ptc skill read` or
+`ptc skill read references/<topic>.md` to print the copy bundled in this
+binary. Do not treat a leftover repository-root or next-to-binary
+`SKILL.md` as authoritative.
 
 You help the user send programs (often CUDA) and test data to the right
 machine on a trusted LAN. Cross-segment traffic goes through a whitelist
@@ -33,10 +40,11 @@ Do not invent commands that are not listed here or there.
 
 ## Core workflow
 
-1. `ptc version` and `ptc skill print` — confirm the skill matches the binary.
+1. `ptc version` -- confirm it matches `metadata.version` in the installed
+   skill (or in `ptc skill read` if that copy is not installed yet).
 2. Ensure `ptc daemon --config config.yaml` is running on this machine
    (`trusted_cidrs` only; never ask the user for neighbor IPs).
-3. `ptc peers --json` (or `ptc peers show <name> --json`) — wait until the
+3. `ptc peers --json` (or `ptc peers show <name> --json`) -- wait until the
    catalog lists the intended node. Prefer `--json` over scraping tables
    (same idea as `gh` / `kubectl`).
 4. Choose a target (see rules below). CUDA jobs go to an exec node with a
@@ -55,11 +63,11 @@ policy, or clean through the board. Those are CLI-only.
 
 ## Decision rules: picking a target
 
-- `--target` omitted → run on this machine (local `ptc submit`).
-- `--target <name|peer-id>` → pre-check the catalog, then send
+- `--target` omitted -- run on this machine (local `ptc submit`).
+- `--target <name|peer-id>` -- pre-check the catalog, then send
   `/ptc/exec/1.0.0`. The target enforces `prepare.yaml` (`require_nvidia`
   and `deny_non_exec` default **true**).
-- `--target auto` → pick an eligible exec node (NVIDIA + exec offered).
+- `--target auto` -- pick an eligible exec node (NVIDIA + exec offered).
   Never resolves to a gateway for CUDA jobs.
 - **Never target a gateway** (or any node with `exec` off / no NVIDIA) for a
   `require_nvidia` job. Expect a clear refusal; do not retry the same target.
@@ -71,7 +79,7 @@ policy, or clean through the board. Those are CLI-only.
   **queue** (FIFO). Follow disconnect does **not** cancel the job; use
   `ptc cancel <run-id>`.
 
-Details: `ptc skill print submit` and `ptc skill print resources`.
+Details: `references/submit.md` and `references/resources.md`.
 
 ## Machine-readable output
 
@@ -79,25 +87,25 @@ Agents should pass `--json` on `peers`, `peers show`, `tasks`, `tasks show`,
 `resources`, `resources show`, `resources pull`, `submit`, `queue`, `cancel`,
 `clean`, `update --mesh`, and `skill list`. Do not parse human tables.
 
-## Topics
+## References
 
-| topic | what it covers | command |
-| --- | --- | --- |
-| `submit` | Workflows, seed-only tasks, placement, queue/cancel | `ptc skill print submit` |
-| `resources` | DirDigest vs board CID, Bitswap, pull/download | `ptc skill print resources` |
-| `install` | `ptc install --ssh`, `ptc update`, mesh rolling upgrade | `ptc skill print install` |
-| `discovery` | Trusted CIDRs, scans, cooldown, relays | `ptc skill print discovery` |
-| `storage` | Seeds vs worktrees, quotas, `ptc clean` | `ptc skill print storage` |
-| `errors` | Recovery for common failures | `ptc skill print errors` |
-
-`ptc skill print` with no topic prints this index.
+| file | what it covers |
+| --- | --- |
+| `references/submit.md` | Workflows, seed-only tasks, placement, queue/cancel |
+| `references/resources.md` | DirDigest vs board CID, Bitswap, pull/download |
+| `references/install.md` | `ptc install --ssh`, `ptc update`, mesh rolling upgrade |
+| `references/discovery.md` | Trusted CIDRs, scans, cooldown, relays |
+| `references/storage.md` | Seeds vs worktrees, quotas, `ptc clean` |
+| `references/errors.md` | Recovery for common failures |
 
 ## Commands (this version)
 
 ```text
 ptc version
-ptc skill print [topic]
+ptc skill sync
 ptc skill list [--json]
+ptc skill read [path]
+ptc skill print [path]
 ptc install --ssh HOST [--version VERSION] [--path PATH]
 ptc update [--ssh HOST] [--version VERSION] [--path PATH] [--mesh] [--no-restart]
 ptc daemon --config config.yaml
@@ -114,6 +122,8 @@ ptc clean outputs|runs|resource|worktrees [--match RE] [--dry-run] [--yes] [--fo
 ptc webui
 ```
 
+`ptc skill print` is an alias of `ptc skill read`.
+
 ## Not provided (do not call)
 
 `ptc dataset`, `ptc gc`, `ptc status`, `ptc logs`, `ptc artifacts`,
@@ -123,7 +133,7 @@ dataset name, remote `ptc clean --node` (local only unless a future
 from the WebUI. Official full P3 UI and OS service installation are not
 done. SSH install does not write a remote `install.json`, so those nodes
 are not mesh-update targets until a local update records the install.
-Standard Bitswap transport is implemented; see `ptc skill print resources`
+Standard Bitswap transport is implemented; see `references/resources.md`
 for its limits.
 
 Full flags and the loopback API: [docs/CLI.md](docs/CLI.md).

@@ -273,7 +273,7 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 	if err := deploy.Save(n.Cfg.DataDir, inst); err != nil {
 		return fail("persist install metadata: %v", errors.Join(err, deploy.Rollback(exe)))
 	}
-	if err := deploy.WriteSkill(exe); err != nil {
+	if err := deploy.SyncSkill(exe); err != nil {
 		n.Log.Warn("refresh skill copy failed", "err", err)
 	}
 	out := updateMessage{OK: true, Bytes: pr.Fetch.Bytes, MiBs: pr.Fetch.MBPerSec}

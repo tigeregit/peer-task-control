@@ -1,7 +1,8 @@
 # Error recovery
 
-1. Version mismatch → install a matching binary; reread `ptc skill print`
-   (and the topic you need) from that binary.
+1. Version mismatch → install a matching binary; run `ptc skill sync` and
+   reread the installed skill (or `ptc skill read` / the `references/` file
+   you need) from that binary.
 2. `daemon lock not found` → start `ptc daemon --config config.yaml` with
    the same `--data-dir`.
 3. Target not in the catalog → wait for a scan/relay push; check
@@ -27,5 +28,5 @@
 8. Still stuck → read `docs/DESIGN.md`, `docs/CLI.md`,
    `docs/CONTRIBUTING.md`. Do not patch a running node out of tree.
 
-More context: `ptc skill print discovery`, `ptc skill print storage`,
-`ptc skill print resources`.
+More context: `references/discovery.md`, `references/storage.md`,
+`references/resources.md`.

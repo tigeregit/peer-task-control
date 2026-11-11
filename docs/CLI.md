@@ -88,11 +88,15 @@ At runtime the workspace is checked about every 250ms, seed space about every 1s
 
 Prints the binary version (development builds are `0.3.0-dev`; Release builds are the tag without `v`), followed by a newline. No config or running daemon is required.
 
-### `ptc skill print [topic]` / `ptc skill list`
+### `ptc skill sync` / `ptc skill list` / `ptc skill read [path]`
 
-Prints the agent skill bound to the current binary. `ptc skill print` prints the index; `ptc skill print <topic>` prints a topic (`submit`, `resources`, `install`, `discovery`, `storage`, `errors`); `ptc skill list` lists topics and accepts `--json`.
+The primary agent load path is the user-scope Agent Skills directory: `~/.agents/skills/peer-task-control/` (Windows: `%USERPROFILE%\.agents\skills\peer-task-control\`). `ptc skill sync` writes the pack bundled in this binary there, creating parent directories as needed, and replaces only this skill's directory. A successful local `ptc update` and a mesh update also run that sync. `ptc install --ssh` and `ptc update --ssh` run `skill sync` on the remote host after the binary is replaced; a failure is reported as a warning and does not roll back the binary. If the installed copy's `metadata.version` does not match `ptc version`, human-facing `ptc skill`, `ptc version`, `ptc install`, and `ptc update` commands print a warning on stderr. The notice is suppressed when `--json` is set and when the `CI` environment variable is set. It does not fail the command. Refresh with `ptc skill sync` or `ptc update`.
 
-The body always comes from text compiled into the binary, and `print` appends a final line `# bound-to-version <version>`. A leftover `SKILL.md` in the current directory or an old install is not read, so usage cannot drift from the actual binary after an update. The repository-root `SKILL.md` must stay identical to `cmd/ptc/skill/SKILL.md`.
+`ptc skill list` shows the bundled version, whether the user-scope install is present and current, and the reference files. `--json` prints the same information as JSON.
+
+`ptc skill read` with no arguments prints `SKILL.md` from the copy compiled into this binary, with `metadata.version` set to this binary's version. `ptc skill read references/storage.md` (or the topic name `storage`) prints that file. Unknown paths fail. `ptc skill print` is an alias of `read`. Guidance is written to stderr so stdout matches the file contents. This reader is a fallback when the on-disk skill directory is missing; prefer the installed copy.
+
+The canonical pack in the repository is `skills/peer-task-control/`. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
 
 A running daemon is not required.
 

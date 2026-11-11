@@ -88,11 +88,15 @@ workspace 必须与实际做种、下载、记录和协调元数据目录分离�
 
 打印二进制版本（开发构建为 `0.3.0-dev`，Release 构建为标签去掉 `v`），后接换行。不需要配置或正在运行的 daemon。
 
-### `ptc skill print [topic]` / `ptc skill list`
+### `ptc skill sync` / `ptc skill list` / `ptc skill read [path]`
 
-打印与当前二进制绑定的 agent skill。`ptc skill print` 输出索引；`ptc skill print <topic>` 输出指定主题（`submit`、`resources`、`install`、`discovery`、`storage`、`errors`）；`ptc skill list` 列出主题，可加 `--json`。
+Agent 的主加载路径是用户范围的 Agent Skills 目录：`~/.agents/skills/peer-task-control/`（Windows：`%USERPROFILE%\.agents\skills\peer-task-control\`）。`ptc skill sync` 把当前二进制内嵌的 pack 写到该目录，必要时创建父目录，并且只替换这一个 skill 目录。成功的本地 `ptc update` 和 mesh 更新也会执行这次同步。`ptc install --ssh` 和 `ptc update --ssh` 在远程二进制替换完成后会在该主机上运行 `skill sync`；失败只作为警告，不会回滚已经装好的二进制。若已安装副本的 `metadata.version` 与 `ptc version` 不一致，面向人工的 `ptc skill`、`ptc version`、`ptc install` 和 `ptc update` 会在 stderr 打印警告。设置了 `--json`，或环境变量 `CI` 有值时，不打印该提示。提示不会让命令失败。用 `ptc skill sync` 或 `ptc update` 刷新即可。
 
-正文始终来自编译进二进制的内嵌文本，并在 `print` 末尾追加一行 `# bound-to-version <版本>`。不再读取当前目录或旧安装残留的 `SKILL.md`，避免更新后 usage 与实际二进制能力不一致。仓库根目录 `SKILL.md` 必须与 `cmd/ptc/skill/SKILL.md` 保持一致。
+`ptc skill list` 显示内嵌版本、用户范围安装是否存在且为当前版本，以及参考文件。`--json` 以 JSON 输出同样的信息。
+
+不带参数的 `ptc skill read` 打印编译进二进制的 `SKILL.md`，并把 `metadata.version` 写成该二进制的版本。`ptc skill read references/storage.md`（或主题名 `storage`）打印对应文件。未知路径会报错。`ptc skill print` 是 `read` 的别名。提示写在 stderr，stdout 与文件内容一致。这是磁盘上的 skill 目录缺失时的后备读取方式；优先使用已安装副本。
+
+仓库中的权威 pack 是 `skills/peer-task-control/`。不要把仓库根目录或可执行文件旁残留的 `SKILL.md` 当作权威来源。
 
 不需要正在运行的 daemon。
 
