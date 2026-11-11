@@ -55,22 +55,9 @@ Start the daemon first, then wait for the catalog to appear. Same-segment discov
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph segA [Trusted segment A]
-    F[files node]
-    C[CUDA exec]
-  end
-  subgraph segB [Trusted segment B]
-    H[Windows host GPU]
-  end
-  G["Gateway: relay + files\nno GPU, not a CUDA target"]
-  F --- G
-  C --- G
-  H --- G
-  CLI[ptc CLI] --> C
-  UI[Read-only WebUI] --> G
-```
+![Trusted LAN mesh](docs/images/architecture-mesh.png)
+
+![Job dispatch and content-addressed seeds](docs/images/architecture-data.png)
 
 - A seed's identity is its **DirDigest** (content fingerprint). The **CID** on the board is only for Bitswap addressing. The two are not interchangeable.
 - Query commands and the WebUI share the same source (`internal/query` + the local `/api/v1`).

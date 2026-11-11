@@ -55,22 +55,9 @@ ptc skill print
 
 ## 架构
 
-```mermaid
-flowchart LR
-  subgraph segA [受信任网段 A]
-    F[files 节点]
-    C[CUDA exec]
-  end
-  subgraph segB [受信任网段 B]
-    H[Windows host GPU]
-  end
-  G["网关 relay + files\n无 GPU，不可作 CUDA 目标"]
-  F --- G
-  C --- G
-  H --- G
-  CLI[ptc CLI] --> C
-  UI[只读 WebUI] --> G
-```
+![受信任局域网网格](docs/images/architecture-mesh.zh-CN.png)
+
+![作业调度与内容寻址种子](docs/images/architecture-data.zh-CN.png)
 
 - 种子身份是 **DirDigest**（内容指纹）；看板上的 **CID** 只用于 Bitswap 寻址，二者不可互换。
 - 查询类命令与 WebUI 同源（`internal/query` + 本机 `/api/v1`）。
