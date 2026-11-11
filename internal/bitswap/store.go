@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
@@ -13,7 +14,10 @@ import (
 
 // Store keeps raw SHA-256 blocks independently of the resource CAS. Checking on
 // read prevents a damaged local cache from being served as valid Bitswap data.
-type Store struct{ root string }
+type Store struct {
+	root string
+	mu   sync.Mutex
+}
 
 func (s *Store) path(c cid.Cid) string {
 	return filepath.Join(s.root, c.String())
@@ -92,6 +96,15 @@ func (s *Store) Put(ctx context.Context, b blocks.Block) error {
 	if err := verify(b.Cid(), b.RawData()); err != nil {
 		return err
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// Blocks are immutable. Replacing an existing block can fail on Windows
+	// while a Bitswap reader has it open.
+	if _, err := s.Get(ctx, b.Cid()); err == nil {
+		return nil
+	} else if !ipld.IsNotFound(err) {
+		return err
+	}
 	f, err := os.CreateTemp(s.root, ".block-")
 	if err != nil {
 		return err
@@ -104,7 +117,14 @@ func (s *Store) Put(ctx context.Context, b blocks.Block) error {
 	if err != nil {
 		return err
 	}
-	return os.Rename(f.Name(), s.path(b.Cid()))
+	if err := os.Rename(f.Name(), s.path(b.Cid())); err != nil {
+		// Another writer may have committed the same verified block first.
+		if _, existingErr := s.Get(ctx, b.Cid()); existingErr == nil {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *Store) PutMany(ctx context.Context, bs []blocks.Block) error {
