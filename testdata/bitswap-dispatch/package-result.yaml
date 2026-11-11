@@ -1,0 +1,23 @@
+apiVersion: ptc/v0
+kind: PackageResult
+metadata:
+  name: bitswap-dispatch-results
+collect:
+  from_prepare_outputs: true
+  items:
+    - name: results
+      path: out/results
+      required: true
+      summary: true
+package:
+  format: unixfs
+  preserve_layout: true
+publish:
+  class: temporary
+  pin: false
+  seed:
+    name: bitswap-dispatch-results
+cleanup:
+  when: success
+  evict_worktree: true
+  evict_unpackaged: true

@@ -1,0 +1,22 @@
+name: bitswap-dispatch
+
+jobs:
+  test:
+    steps:
+      - name: Prepare
+        uses: ptc/prepare@v0
+        with:
+          file: prepare.yaml
+      - name: Check the pulled SDK and run a CUDA kernel
+        run: |
+          set -euo pipefail
+          mkdir -p out/results tmp
+          du -sb in/sdk | tee out/results/sdk-size.txt
+          ls -l in/sdk/lib | tee -a out/results/sdk-size.txt
+          nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | tee out/results/nvidia-smi.txt
+          nvcc -O2 -o tmp/vector_add src/vector_add.cu
+          tmp/vector_add | tee out/results/run.txt
+      - name: Package result
+        uses: ptc/package-result@v0
+        with:
+          file: package-result.yaml
