@@ -8,11 +8,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/catalog"
-	"github.com/peer-task-control/ptc/internal/config"
-	"github.com/peer-task-control/ptc/internal/control"
-	"github.com/peer-task-control/ptc/internal/disk"
-	"github.com/peer-task-control/ptc/internal/query"
+	"github.com/tigeregit/peer-task-control/internal/catalog"
+	"github.com/tigeregit/peer-task-control/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/control"
+	"github.com/tigeregit/peer-task-control/internal/disk"
+	"github.com/tigeregit/peer-task-control/internal/query"
 )
 
 func peersCmd() *cobra.Command {

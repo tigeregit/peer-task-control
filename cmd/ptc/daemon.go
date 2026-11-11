@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/node"
+	"github.com/tigeregit/peer-task-control/internal/node"
 )
 
 func daemonCmd() *cobra.Command {

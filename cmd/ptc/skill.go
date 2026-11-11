@@ -2,14 +2,11 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 
 	"github.com/spf13/cobra"
 
 	_ "embed"
-	"github.com/peer-task-control/ptc/internal/version"
+	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
 //go:embed skill.txt
@@ -37,24 +34,6 @@ func skillCmd() *cobra.Command {
 }
 
 func skillText() (string, error) {
-	// Prefer the SKILL.md shipped next to the source or the executable.
-	candidates := []string{}
-	if _, file, _, ok := runtime.Caller(0); ok {
-		candidates = append(candidates, filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "SKILL.md")))
-	}
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		candidates = append(candidates, filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "..", "SKILL.md"))
-	}
-	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(wd, "SKILL.md"))
-	}
-	for _, p := range candidates {
-		b, err := os.ReadFile(p)
-		if err == nil && len(b) > 0 {
-			return string(b), nil
-		}
-	}
 	if skillFallback != "" {
 		return skillFallback, nil
 	}

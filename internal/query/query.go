@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/resource"
-	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 // TaskFilter is the shared task list query used by the CLI and the HTTP API.

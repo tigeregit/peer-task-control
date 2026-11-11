@@ -16,10 +16,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	manet "github.com/multiformats/go-multiaddr/net"
 
-	"github.com/peer-task-control/ptc/internal/catalog"
-	"github.com/peer-task-control/ptc/internal/dispatch"
-	"github.com/peer-task-control/ptc/internal/run"
-	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/catalog"
+	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/run"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 const (

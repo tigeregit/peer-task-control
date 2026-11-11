@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           ver="${GITHUB_REF_NAME#v}"
-          ldflags="-s -w"
+          ldflags="-s -w -X github.com/tigeregit/peer-task-control/internal/version.Version=${ver}"
           build() {
             local goos="$1" goarch="$2" out="$3"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "$ldflags" -o "dist/${out}" ./cmd/ptc

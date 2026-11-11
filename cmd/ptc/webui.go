@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/catalog"
-	"github.com/peer-task-control/ptc/internal/control"
-	"github.com/peer-task-control/ptc/internal/taskboard"
-	"github.com/peer-task-control/ptc/internal/version"
+	"github.com/tigeregit/peer-task-control/internal/catalog"
+	"github.com/tigeregit/peer-task-control/internal/control"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
 func webuiCmd() *cobra.Command {

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 const (

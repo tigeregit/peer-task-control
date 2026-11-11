@@ -9,7 +9,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/peer-task-control/ptc/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/cas"
 )
 
 // SeedDirName is the packages/ subdirectory used for a published prepare seed.

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/cas"
-	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/resource"
 )
 
 // materializeDigest places a content-addressed seed at dest. It tries, in

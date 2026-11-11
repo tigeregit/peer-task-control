@@ -10,7 +10,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 
-	"github.com/peer-task-control/ptc/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/config"
 )
 
 // CIDR is a libp2p connection gater that only admits addresses in trusted nets.

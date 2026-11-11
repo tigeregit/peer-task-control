@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/catalog"
-	"github.com/peer-task-control/ptc/internal/control"
+	"github.com/tigeregit/peer-task-control/internal/catalog"
+	"github.com/tigeregit/peer-task-control/internal/control"
 )
 
 func TestMeshWatchFailure(t *testing.T) {

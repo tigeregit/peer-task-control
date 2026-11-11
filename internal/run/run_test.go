@@ -6,9 +6,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/peer-task-control/ptc/internal/caps"
-	"github.com/peer-task-control/ptc/internal/resource"
-	"github.com/peer-task-control/ptc/internal/workflow"
+	"github.com/tigeregit/peer-task-control/internal/caps"
+	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/workflow"
 )
 
 func TestSubmitLocalFixture(t *testing.T) {

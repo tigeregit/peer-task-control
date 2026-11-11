@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/config"
-	"github.com/peer-task-control/ptc/internal/version"
+	"github.com/tigeregit/peer-task-control/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
 var (

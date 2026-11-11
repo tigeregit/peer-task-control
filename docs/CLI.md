@@ -1,6 +1,6 @@
 # ptc CLI 参考
 
-对应版本：**0.2.0-p2**。与二进制不一致时，以 `ptc version` 和 `ptc --help` 为准。
+对应开发版本：**0.3.0-dev**。正式构建的版本由 Release 标签写入；以 `ptc version` 和 `ptc --help` 为准。
 
 在线帮助：
 
@@ -61,13 +61,13 @@ ptc <命令> --help
 
 ### `ptc version`
 
-打印二进制版本（当前为 `0.2.0-p2`），后接换行。不需要配置或正在运行的 daemon。
+打印二进制版本（开发构建为 `0.3.0-dev`，Release 构建为标签去掉 `v`），后接换行。不需要配置或正在运行的 daemon。
 
 ### `ptc skill print`
 
 打印与当前二进制绑定的 agent skill 正文，并在末尾追加一行 `# bound-to-version <版本>`。
 
-查找 `SKILL.md` 的顺序：源码树中的 `SKILL.md`（开发时）、可执行文件同目录、可执行文件上一级目录、当前工作目录。都找不到时，使用编译进二进制的内嵌文本。
+始终打印编译进二进制的内嵌文本，不再读取当前目录或旧安装残留的 `SKILL.md`，避免更新后 usage 与实际二进制能力不一致。仓库 `SKILL.md` 与 `cmd/ptc/skill.txt` 保持一致。
 
 不需要正在运行的 daemon。
 

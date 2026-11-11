@@ -6,7 +6,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	ma "github.com/multiformats/go-multiaddr"
 
-	"github.com/peer-task-control/ptc/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/config"
 )
 
 func TestInterceptAddrDial(t *testing.T) {

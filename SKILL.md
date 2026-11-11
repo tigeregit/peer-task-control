@@ -8,7 +8,7 @@ description: >
 
 # peer-task-control
 
-Version-bound: this text must match `ptc version` (currently **0.2.0-p2**). If they differ, upgrade before continuing. Print the copy shipped in the binary with `ptc skill print`.
+Version-bound: `ptc skill print` always prints the copy embedded in that binary and appends its actual `bound-to-version`. Check it against `ptc version`; do not use an old external SKILL.md after an update.
 
 You help the user send programs (often CUDA) and test data to the right machine on a trusted LAN. Cross-segment traffic goes through a whitelist gateway that has no NVIDIA GPU and must never be an exec target for CUDA jobs.
 

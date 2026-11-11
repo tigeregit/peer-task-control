@@ -25,9 +25,11 @@
 
 ## 发版
 
-1. 把 `internal/version/version.go` 和 skill 文本里的版本改成同一标识（例如 `0.2.0-p2`）。
+1. 开发版号在 `internal/version/version.go`；Release 构建通过 `-ldflags -X github.com/tigeregit/peer-task-control/internal/version.Version=<标签去掉 v>` 写入准确版本。`SKILL.md` 和内嵌 `cmd/ptc/skill.txt` 必须一致，`ptc skill print` 追加实际绑定版本；不要让工作目录中的旧 skill 覆盖二进制内嵌 usage。
 2. 在 `docs/release-notes/v<版本>.md` 写发布说明，文件名必须与即将推送的标签一致。
 3. 合并到 `main` 后打标签并推送：`git tag v0.2.0-p2 && git push origin v0.2.0-p2`。
 4. GitHub Actions 工作流 `.github/workflows/release.yml` 会交叉编译二进制、生成 `SHA256SUMS`，并创建 Release。标签名含 `-`（如 `-p2`、`-rc`）时自动标为预发布。
 
 不要把 `vendor/`、本机 identity、或编译出的二进制提交进仓库。
+
+`.gitattributes` 将 shell 脚本固定为 LF；Windows checkout 也不要把 `.sh` 转成 CRLF，否则传给 Linux / Docker 后 `sh` 会把回车当作命令内容。

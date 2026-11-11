@@ -13,8 +13,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/peer-task-control/ptc/internal/cas"
-	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/resource"
 )
 
 const (

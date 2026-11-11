@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/clean"
+	"github.com/tigeregit/peer-task-control/internal/clean"
 )
 
 func cleanCmd() *cobra.Command {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/control"
+	"github.com/tigeregit/peer-task-control/internal/control"
 )
 
 func policyCmd() *cobra.Command {

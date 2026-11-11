@@ -8,14 +8,14 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/peer-task-control/ptc/internal/catalog"
-	"github.com/peer-task-control/ptc/internal/control"
-	"github.com/peer-task-control/ptc/internal/dispatch"
-	"github.com/peer-task-control/ptc/internal/policy"
-	"github.com/peer-task-control/ptc/internal/query"
-	"github.com/peer-task-control/ptc/internal/resource"
-	"github.com/peer-task-control/ptc/internal/taskboard"
-	"github.com/peer-task-control/ptc/internal/version"
+	"github.com/tigeregit/peer-task-control/internal/catalog"
+	"github.com/tigeregit/peer-task-control/internal/control"
+	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/policy"
+	"github.com/tigeregit/peer-task-control/internal/query"
+	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
 type Node interface {

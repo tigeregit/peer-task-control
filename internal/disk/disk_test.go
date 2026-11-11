@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/peer-task-control/ptc/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/config"
 )
 
 func TestMeasureRealVolume(t *testing.T) {

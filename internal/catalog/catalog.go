@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/disk"
+	"github.com/tigeregit/peer-task-control/internal/disk"
 )
 
 type ServiceState struct {

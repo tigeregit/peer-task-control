@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/peer-task-control/ptc/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/config"
 )
 
 // Volume is one filesystem that holds a ptc data root.
