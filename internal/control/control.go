@@ -270,9 +270,15 @@ func (c *Client) Queue() ([]dispatch.QueueItem, error) {
 	return out.Jobs, err
 }
 
-func (c *Client) Cancel(id string) error {
+func (c *Client) Cancel(id string) (string, error) {
 	var out map[string]string
-	return c.withTimeout(15*time.Second).post("/api/v1/cancel", map[string]string{"id": id}, &out)
+	if err := c.withTimeout(15*time.Second).post("/api/v1/cancel", map[string]string{"id": id}, &out); err != nil {
+		return "", err
+	}
+	if out["status"] == "" {
+		return "", fmt.Errorf("daemon returned no cancellation status")
+	}
+	return out["status"], nil
 }
 
 // Exec posts a bundle to the local daemon, which dispatches it over the mesh.

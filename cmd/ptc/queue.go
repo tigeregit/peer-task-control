@@ -18,7 +18,7 @@ func queueCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "queue",
 		Short: "List queued and running jobs on a node or across the mesh",
-		Long:  "Shows jobs in queued or running state. Finished jobs are in ptc tasks and the WebUI board. Use ptc cancel <run-id> to cancel a queued or running job (CLI only).",
+		Long:  "Shows queued, running, and cancelling jobs. A cancelling job keeps its execution slot until its processes stop. Finished jobs are in ptc tasks and the WebUI board. Use ptc cancel <run-id> to cancel a queued or running job (CLI only).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cli, err := controlClient()
 			if err != nil {
@@ -73,13 +73,14 @@ func cancelCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := cli.Cancel(args[0]); err != nil {
+			status, err := cli.Cancel(args[0])
+			if err != nil {
 				return err
 			}
 			if jsonOut {
-				return printJSON(map[string]string{"status": "cancelled", "id": args[0]})
+				return printJSON(map[string]string{"status": status, "id": args[0]})
 			}
-			fmt.Printf("cancelled %s\n", args[0])
+			fmt.Printf("%s %s\n", status, args[0])
 			return nil
 		},
 	}

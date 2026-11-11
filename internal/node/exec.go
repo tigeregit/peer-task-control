@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +45,20 @@ func (n *Node) initExec() error {
 	n.queue = q
 	n.follows = &execFollowers{m: map[string][]chan dispatch.Event{}}
 	n.cancels = map[string]context.CancelFunc{}
+	for _, job := range q.List() {
+		if job.Status == dispatch.StatusCancelled && job.CancelRequested {
+			end := time.Now().UTC()
+			if job.EndedAt != nil {
+				end = *job.EndedAt
+			}
+			if err := n.writeFinalRecord(job, taskboard.Task{}, dispatch.StatusCancelled, "cancelled after daemon restart", end); err != nil {
+				return fmt.Errorf("recover cancelled task %s: %w", job.RunID, err)
+			}
+			if err := q.DropBundle(job.JobID); err != nil {
+				return fmt.Errorf("remove cancelled bundle %s: %w", job.JobID, err)
+			}
+		}
+	}
 	n.Host.SetStreamHandler(ProtocolExec, n.handleExec)
 	n.Host.SetStreamHandler(ProtocolQueue, n.handleQueue)
 	go n.execLoop()
@@ -167,15 +183,6 @@ func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer stri
 	if err := dispatch.CheckJobPlacement(u.Loaded, n.LocalEntry()); err != nil {
 		return dispatch.Job{}, dispatch.Event{}, err
 	}
-	n.mu.Lock()
-	pending := 0
-	if n.queue != nil {
-		pending = len(n.queue.Pending()) + len(n.queue.Running())
-	}
-	n.mu.Unlock()
-	if pending >= maxQueueJobs {
-		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("exec queue on %s is full (%d jobs); try again later", n.Cfg.Name, pending)
-	}
 	now := time.Now().UTC()
 	runID, err := run.TaskID(now, u.Loaded.JobName)
 	if err != nil {
@@ -203,11 +210,18 @@ func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer stri
 	if err != nil {
 		return dispatch.Job{}, dispatch.Event{}, err
 	}
-	if err := n.queue.Enqueue(&job, bundle); err != nil {
-		return dispatch.Job{}, dispatch.Event{}, err
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	pending := len(n.queue.Pending()) + len(n.queue.Running())
+	if pending >= maxQueueJobs {
+		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("exec queue on %s is full (%d jobs); try again later", n.Cfg.Name, pending)
 	}
-	if _, err := dispatch.WriteRecord(n.Cfg.RunsDir(), t); err != nil {
-		n.Log.Warn("failed to write queued run record", "err", err)
+	recordPath, err := dispatch.WriteRecord(n.Cfg.RunsDir(), t)
+	if err != nil {
+		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("write queued run record: %w", err)
+	}
+	if err := n.queue.Enqueue(&job, bundle); err != nil {
+		return dispatch.Job{}, dispatch.Event{}, errors.Join(err, os.Remove(recordPath))
 	}
 	n.Log.Info("queued dispatched job", "job", job.JobID, "run", job.RunID, "from", sub.Node)
 	return job, dispatch.Event{Type: "accepted", JobID: job.JobID, RunID: job.RunID, Status: dispatch.StatusQueued, Queued: pending + 1, At: now.Format(time.RFC3339)}, nil
@@ -249,21 +263,26 @@ func (n *Node) startDueJobs() {
 		limit = 1
 	}
 	for {
+		n.mu.Lock()
+		if n.ctx.Err() != nil {
+			n.mu.Unlock()
+			return
+		}
 		running := n.queue.Running()
 		if len(running) >= limit {
+			n.mu.Unlock()
 			return
 		}
 		pending := n.queue.Pending()
 		if len(pending) == 0 {
+			n.mu.Unlock()
 			return
 		}
 		job := pending[0]
-		// re-check not cancelled
-		if cur, ok := n.queue.Get(job.JobID); ok && cur.Status != dispatch.StatusQueued {
-			continue
-		}
 		start := time.Now().UTC()
 		if err := n.queue.MarkRunning(job.JobID, job.RunID, start); err != nil {
+			n.mu.Unlock()
+			n.Log.Error("failed to start queued job", "job", job.JobID, "err", err)
 			return
 		}
 		job, _ = n.queue.Get(job.JobID)
@@ -276,7 +295,6 @@ func (n *Node) startDueJobs() {
 				cancel = func() { stop(); old() }
 			}
 		}
-		n.mu.Lock()
 		n.cancels[job.JobID] = cancel
 		n.mu.Unlock()
 		go n.runJob(ctx, cancel, job)
@@ -293,7 +311,7 @@ func (n *Node) runJob(ctx context.Context, cancel context.CancelFunc, job dispat
 	}()
 	bundle, err := readFile(n.queue.BundlePath(job.JobID))
 	if err != nil {
-		n.finishJob(job, dispatch.StatusFailed, "", err.Error())
+		n.finishJob(job, dispatch.StatusFailed, "", err.Error(), taskboard.Task{})
 		return
 	}
 	logs := &followWriter{n: n, jobID: job.JobID, runID: job.RunID}
@@ -304,26 +322,44 @@ func (n *Node) runJob(ctx context.Context, cancel context.CancelFunc, job dispat
 	if err != nil {
 		status = dispatch.StatusFailed
 		msg = err.Error()
-		if ctx.Err() != nil {
-			if cur, ok := n.queue.Get(job.JobID); ok && cur.Status == dispatch.StatusCancelled {
-				status = dispatch.StatusCancelled
-				msg = "cancelled"
-			} else if ctx.Err() == context.DeadlineExceeded {
-				msg = "timed out: " + err.Error()
-			}
+		if ctx.Err() == context.DeadlineExceeded {
+			msg = "timed out: " + err.Error()
 		}
 	}
-	if res.Task.ID != "" {
-		// record already written by run.Submit; ensure status wording
-		_ = res
-	}
-	n.finishJob(job, status, res.Digest, msg)
+	n.finishJob(job, status, res.Digest, msg, res.Task)
 }
 
-func (n *Node) finishJob(job dispatch.Job, status, digest, errMsg string) {
+func (n *Node) finishJob(job dispatch.Job, status, digest, errMsg string, task taskboard.Task) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	current, ok := n.queue.Get(job.JobID)
+	if !ok {
+		n.Log.Error("finished job is missing from queue", "job", job.JobID)
+		n.emit(job.JobID, dispatch.Event{Type: "error", JobID: job.JobID, RunID: job.RunID, Error: "finished job is missing from queue"})
+		return
+	}
+	if current.CancelRequested {
+		status, digest, errMsg = dispatch.StatusCancelled, "", "cancelled"
+	}
 	end := time.Now().UTC()
-	_ = n.queue.MarkDone(job.JobID, status, digest, errMsg, end)
-	n.queue.DropBundle(job.JobID)
+	if err := n.writeFinalRecord(current, task, status, errMsg, end); err != nil {
+		n.Log.Error("failed to write final run record", "job", job.JobID, "err", err)
+		if status == dispatch.StatusSucceeded {
+			status, digest = dispatch.StatusFailed, ""
+		}
+		if errMsg != "" {
+			errMsg += "; "
+		}
+		errMsg += "failed to write final run record: " + err.Error()
+	}
+	if err := n.queue.MarkDone(job.JobID, status, digest, errMsg, end); err != nil {
+		n.Log.Error("failed to finish queued job", "job", job.JobID, "err", err)
+		n.emit(job.JobID, dispatch.Event{Type: "error", JobID: job.JobID, RunID: job.RunID, Error: "failed to persist final queue state: " + err.Error()})
+		return
+	}
+	if err := n.queue.DropBundle(job.JobID); err != nil {
+		n.Log.Warn("failed to remove finished bundle", "job", job.JobID, "err", err)
+	}
 	n.emit(job.JobID, dispatch.Event{
 		Type:    "done",
 		JobID:   job.JobID,
@@ -337,6 +373,60 @@ func (n *Node) finishJob(job dispatch.Job, status, digest, errMsg string) {
 	n.Log.Info("finished dispatched job", "job", job.JobID, "run", job.RunID, "status", status, "digest", digest)
 }
 
+func (n *Node) writeFinalRecord(job dispatch.Job, task taskboard.Task, status, msg string, end time.Time) error {
+	if job.RunID == "" {
+		return fmt.Errorf("job %s has no run id", job.JobID)
+	}
+	if task.ID == "" {
+		b, err := os.ReadFile(filepath.Join(n.Cfg.RunsDir(), job.RunID+".json"))
+		if err == nil {
+			if err := json.Unmarshal(b, &task); err != nil {
+				return fmt.Errorf("read queued run record: %w", err)
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		} else {
+			task = taskboard.Task{
+				ID: job.RunID, Name: taskboard.Text{ZH: job.Name, EN: job.Name},
+				Event: "mesh_dispatch", Actor: job.Submitter.Node, Target: n.Cfg.Name,
+				Source: "mesh-dispatch", Node: n.Cfg.Name, PeerID: n.Host.ID().String(),
+				Submitter: &job.Submitter,
+			}
+		}
+	}
+	if task.ID != job.RunID {
+		return fmt.Errorf("run record id %q does not match %q", task.ID, job.RunID)
+	}
+	switch status {
+	case dispatch.StatusSucceeded:
+		task.Status = "success"
+	case dispatch.StatusFailed:
+		task.Status = "failure"
+	case dispatch.StatusCancelled:
+		task.Status = "cancelled"
+	default:
+		return fmt.Errorf("invalid final job status %q", status)
+	}
+	if task.StartedAt == nil {
+		task.StartedAt = job.StartedAt
+		if task.StartedAt == nil {
+			task.StartedAt = taskboard.PtrTime(job.QueuedAt)
+		}
+	}
+	task.EndedAt = taskboard.PtrTime(end)
+	if status == dispatch.StatusCancelled {
+		task.Summary = taskboard.Text{ZH: "已取消", EN: "cancelled"}
+	} else if msg != "" {
+		task.Summary = taskboard.Text{ZH: msg, EN: msg}
+	}
+	for i := range task.Jobs {
+		task.Jobs[i].Status = task.Status
+		task.Jobs[i].EndedAt = task.EndedAt
+	}
+	_, err := dispatch.WriteRecord(n.Cfg.RunsDir(), task)
+	return err
+}
+
 func doneMessage(status, digest, node string) string {
 	if status == dispatch.StatusSucceeded && digest != "" {
 		return "succeeded on " + node + "; result seed " + digest
@@ -345,36 +435,26 @@ func doneMessage(status, digest, node string) string {
 }
 
 func (n *Node) CancelLocal(id string) (dispatch.Job, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	job, err := n.queue.Cancel(id)
 	if err != nil {
 		return job, err
 	}
-	n.mu.Lock()
-	if c, ok := n.cancels[job.JobID]; ok {
+	if job.Status == dispatch.StatusRunning {
+		c, ok := n.cancels[job.JobID]
+		if !ok {
+			return job, fmt.Errorf("cancellation requested but runner for %s is missing", job.JobID)
+		}
 		c()
+		return job, nil
 	}
-	n.mu.Unlock()
-	// update the run record
-	if job.RunID != "" {
-		t := taskboard.Task{
-			ID:        job.RunID,
-			Name:      taskboard.Text{ZH: job.Name, EN: job.Name},
-			Status:    dispatch.StatusCancelled,
-			Event:     "mesh_dispatch",
-			Actor:     job.Submitter.Node,
-			Target:    n.Cfg.Name,
-			StartedAt: job.StartedAt,
-			EndedAt:   job.EndedAt,
-			Summary:   taskboard.Text{ZH: "已取消", EN: "cancelled"},
-			Source:    "mesh-dispatch",
-			Node:      n.Cfg.Name,
-			PeerID:    n.Host.ID().String(),
-			Submitter: &job.Submitter,
-		}
-		if t.StartedAt == nil {
-			t.StartedAt = taskboard.PtrTime(job.QueuedAt)
-		}
-		_, _ = dispatch.WriteRecord(n.Cfg.RunsDir(), t)
+	recordErr := n.writeFinalRecord(job, taskboard.Task{}, dispatch.StatusCancelled, "cancelled", *job.EndedAt)
+	bundleErr := n.queue.DropBundle(job.JobID)
+	if err := errors.Join(recordErr, bundleErr); err != nil {
+		n.Log.Error("failed to persist queued cancellation", "job", job.JobID, "err", err)
+		n.emit(job.JobID, dispatch.Event{Type: "error", JobID: job.JobID, RunID: job.RunID, Error: "failed to persist cancellation: " + err.Error()})
+		return job, err
 	}
 	n.emit(job.JobID, dispatch.Event{Type: "done", JobID: job.JobID, RunID: job.RunID, Status: dispatch.StatusCancelled, Error: "cancelled", At: time.Now().UTC().Format(time.RFC3339)})
 	return job, nil
@@ -488,43 +568,44 @@ func (n *Node) fetchQueue(ctx context.Context, id string) ([]dispatch.QueueItem,
 	return reply.Jobs, nil
 }
 
-func (n *Node) remoteCancel(ctx context.Context, id, runID string) error {
+func (n *Node) remoteCancel(ctx context.Context, id, runID string) (string, error) {
 	pid, err := peer.Decode(id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	s, err := n.openStream(ctx, pid, ProtocolQueue)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer s.Close()
 	_ = s.SetDeadline(timeNowDeadline(ctx, 8*time.Second))
 	if err := json.NewEncoder(s).Encode(dispatch.QueueMessage{Type: "cancel", RunID: runID}); err != nil {
-		return err
+		return "", err
 	}
 	var reply dispatch.QueueMessage
 	if err := json.NewDecoder(s).Decode(&reply); err != nil {
-		return err
+		return "", err
 	}
 	if reply.Error != "" {
-		return fmt.Errorf("%s", reply.Error)
+		return "", fmt.Errorf("%s", reply.Error)
 	}
-	return nil
+	if len(reply.Jobs) != 1 || reply.Jobs[0].Status == "" {
+		return "", fmt.Errorf("remote node returned no cancellation status")
+	}
+	return reply.Jobs[0].Status, nil
 }
 
 // Cancel looks up a queued or running job locally or on the mesh and cancels it.
-func (n *Node) Cancel(ctx context.Context, id string) error {
-	if _, err := n.CancelLocal(id); err == nil {
-		return nil
-	} else if ctx == nil {
-		ctx = n.ctx
-	}
-	// Find the owner via collected runs / queues
-	for _, it := range n.CollectQueue(ctx) {
-		if it.RunID == id || it.JobID == id {
-			// We need the peer; CollectQueue items don't include node.
-			break
+func (n *Node) Cancel(ctx context.Context, id string) (string, error) {
+	if _, ok := n.queue.Get(id); ok {
+		job, err := n.CancelLocal(id)
+		if err != nil {
+			return "", err
 		}
+		return job.Item().Status, nil
+	}
+	if ctx == nil {
+		ctx = n.ctx
 	}
 	for _, e := range n.Peers() {
 		if e.PeerID == "" || e.PeerID == n.Host.ID().String() {
@@ -540,7 +621,7 @@ func (n *Node) Cancel(ctx context.Context, id string) error {
 			}
 		}
 	}
-	return fmt.Errorf("job %s not found in any local or remote queue (finished jobs cannot be cancelled)", id)
+	return "", fmt.Errorf("job %s not found in any local or remote queue (finished jobs cannot be cancelled)", id)
 }
 
 // Dispatch sends a bundle to a mesh node and optionally follows events.
@@ -627,15 +708,15 @@ func (n *Node) Dispatch(ctx context.Context, target catalog.Entry, bundle []byte
 
 func (n *Node) watch(jobID string) chan dispatch.Event {
 	ch := make(chan dispatch.Event, 32)
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.follows.mu.Lock()
+	defer n.follows.mu.Unlock()
 	n.follows.m[jobID] = append(n.follows.m[jobID], ch)
-	n.follows.mu.Unlock()
 	// If the job already finished between accept and watch, the done event
 	// is still in the queue record.
 	if j, ok := n.queue.Get(jobID); ok && (j.Status == dispatch.StatusSucceeded || j.Status == dispatch.StatusFailed || j.Status == dispatch.StatusCancelled) {
-		go func() {
-			ch <- dispatch.Event{Type: "done", JobID: j.JobID, RunID: j.RunID, Status: j.Status, Digest: j.Digest, Error: j.Error}
-		}()
+		ch <- dispatch.Event{Type: "done", JobID: j.JobID, RunID: j.RunID, Status: j.Status, Digest: j.Digest, Error: j.Error}
 	}
 	return ch
 }

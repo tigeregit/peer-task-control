@@ -46,7 +46,7 @@ func submitSeeds(loaded workflow.Loaded, start time.Time, opt Options) (Result, 
 	rec.Annotations = []taskboard.Annotation{{Level: "notice", Message: taskboard.Text{EN: summary, ZH: summary}}}
 	res := Result{ID: rec.ID, Status: status, Task: rec}
 	var err error
-	res.TaskPath, err = writeTask(opt.runsDir(), rec)
+	res.TaskPath, err = writeTaskIfNeeded(opt.runsDir(), rec, opt.DeferRecord)
 	return res, errors.Join(seedErr, err)
 }
 

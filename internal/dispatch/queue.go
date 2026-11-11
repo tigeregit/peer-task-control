@@ -13,27 +13,29 @@ import (
 )
 
 const (
-	StatusQueued    = "queued"
-	StatusRunning   = "running"
-	StatusSucceeded = "succeeded"
-	StatusFailed    = "failed"
-	StatusCancelled = "cancelled"
+	StatusQueued     = "queued"
+	StatusRunning    = "running"
+	StatusCancelling = "cancelling"
+	StatusSucceeded  = "succeeded"
+	StatusFailed     = "failed"
+	StatusCancelled  = "cancelled"
 )
 
 // Job is a persisted queue entry. The bundle lives next to it as <job_id>.tar.
 type Job struct {
-	JobID     string          `json:"job_id"`
-	RunID     string          `json:"run_id,omitempty"`
-	JobName   string          `json:"job_name,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Status    string          `json:"status"`
-	QueuedAt  time.Time       `json:"queued_at"`
-	StartedAt *time.Time      `json:"started_at,omitempty"`
-	EndedAt   *time.Time      `json:"ended_at,omitempty"`
-	Submitter taskboard.Party `json:"submitter"`
-	Digest    string          `json:"digest,omitempty"`
-	Error     string          `json:"error,omitempty"`
-	Timeout   string          `json:"timeout,omitempty"`
+	JobID           string          `json:"job_id"`
+	RunID           string          `json:"run_id,omitempty"`
+	JobName         string          `json:"job_name,omitempty"`
+	Name            string          `json:"name,omitempty"`
+	Status          string          `json:"status"`
+	QueuedAt        time.Time       `json:"queued_at"`
+	StartedAt       *time.Time      `json:"started_at,omitempty"`
+	EndedAt         *time.Time      `json:"ended_at,omitempty"`
+	Submitter       taskboard.Party `json:"submitter"`
+	Digest          string          `json:"digest,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	Timeout         string          `json:"timeout,omitempty"`
+	CancelRequested bool            `json:"cancel_requested,omitempty"`
 }
 
 // Queue is a FIFO of jobs on one exec node, persisted under dir.
@@ -64,10 +66,19 @@ func OpenQueue(dir string) (*Queue, error) {
 		// A running job left behind by a crash is re-queued so it can be
 		// retried or cancelled; the runner treats status=queued as pending.
 		if j.Status == StatusRunning {
-			j.Status = StatusQueued
-			j.StartedAt = nil
-			j.Error = "resumed after daemon restart"
-			_ = q.write(&j)
+			if j.CancelRequested {
+				j.Status = StatusCancelled
+				t := time.Now().UTC()
+				j.EndedAt = &t
+				j.Error = "cancelled after daemon restart"
+			} else {
+				j.Status = StatusQueued
+				j.StartedAt = nil
+				j.Error = "resumed after daemon restart"
+			}
+			if err := q.write(&j); err != nil {
+				return nil, fmt.Errorf("recover job %s: %w", j.JobID, err)
+			}
 		}
 		q.jobs[j.JobID] = &j
 	}
@@ -166,27 +177,38 @@ func (q *Queue) List() []Job {
 }
 
 func (q *Queue) MarkRunning(id, runID string, start time.Time) error {
-	return q.update(id, func(j *Job) {
+	return q.update(id, func(j *Job) error {
+		if j.Status != StatusQueued {
+			return fmt.Errorf("job %s is %s, not queued", id, j.Status)
+		}
 		j.Status = StatusRunning
 		j.RunID = runID
 		t := start.UTC()
 		j.StartedAt = &t
 		j.Error = ""
+		return nil
 	})
 }
 
 func (q *Queue) MarkDone(id, status, digest, errMsg string, end time.Time) error {
-	return q.update(id, func(j *Job) {
+	return q.update(id, func(j *Job) error {
+		if j.Status != StatusRunning {
+			return fmt.Errorf("job %s is %s, not running", id, j.Status)
+		}
+		if j.CancelRequested && status != StatusCancelled {
+			return fmt.Errorf("job %s has a pending cancellation", id)
+		}
 		j.Status = status
 		j.Digest = digest
 		j.Error = errMsg
 		t := end.UTC()
 		j.EndedAt = &t
+		return nil
 	})
 }
 
-// Cancel marks a queued or running job cancelled. The runner observes this
-// and stops a running job if it can. Already-finished jobs are refused.
+// Cancel finishes a queued job or records a cancellation request for a running
+// job. Running jobs keep their slot until their runner has actually stopped.
 func (q *Queue) Cancel(id string) (Job, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -194,22 +216,36 @@ func (q *Queue) Cancel(id string) (Job, error) {
 	if !ok {
 		return Job{}, fmt.Errorf("job %s not found", id)
 	}
-	switch j.Status {
-	case StatusSucceeded, StatusFailed, StatusCancelled:
+	next := *j
+	switch next.Status {
+	case StatusQueued:
+		next.Status = StatusCancelled
+		t := time.Now().UTC()
+		next.EndedAt = &t
+		next.Error = "cancelled"
+	case StatusRunning:
+		if next.CancelRequested {
+			return next, fmt.Errorf("job %s is already cancelling", id)
+		}
+		next.CancelRequested = true
+		next.Error = "cancellation requested"
+	default:
 		return *j, fmt.Errorf("job %s is already %s", id, j.Status)
 	}
-	j.Status = StatusCancelled
-	t := time.Now().UTC()
-	j.EndedAt = &t
-	j.Error = "cancelled"
-	if err := q.write(j); err != nil {
+	if err := q.write(&next); err != nil {
 		return *j, err
 	}
-	_ = os.Remove(q.BundlePath(j.JobID))
+	*j = next
 	return *j, nil
 }
 
-func (q *Queue) DropBundle(id string) { _ = os.Remove(q.BundlePath(id)) }
+func (q *Queue) DropBundle(id string) error {
+	err := os.Remove(q.BundlePath(id))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
 
 func (q *Queue) ReferencedDigests() map[string][]string {
 	q.mu.Lock()
@@ -226,15 +262,22 @@ func (q *Queue) ReferencedDigests() map[string][]string {
 	return out
 }
 
-func (q *Queue) update(id string, fn func(*Job)) error {
+func (q *Queue) update(id string, fn func(*Job) error) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	j, ok := q.lookup(id)
 	if !ok {
 		return fmt.Errorf("job %s not found", id)
 	}
-	fn(j)
-	return q.write(j)
+	next := *j
+	if err := fn(&next); err != nil {
+		return err
+	}
+	if err := q.write(&next); err != nil {
+		return err
+	}
+	*j = next
+	return nil
 }
 
 func (q *Queue) lookup(id string) (*Job, bool) {
@@ -262,11 +305,15 @@ func (q *Queue) write(j *Job) error {
 }
 
 func (j Job) Item() QueueItem {
+	status := j.Status
+	if status == StatusRunning && j.CancelRequested {
+		status = StatusCancelling
+	}
 	return QueueItem{
 		JobID:     j.JobID,
 		RunID:     j.RunID,
 		JobName:   j.JobName,
-		Status:    j.Status,
+		Status:    status,
 		QueuedAt:  ptrOrNil(j.QueuedAt),
 		StartedAt: j.StartedAt,
 		EndedAt:   j.EndedAt,

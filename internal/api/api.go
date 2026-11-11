@@ -30,7 +30,7 @@ type Node interface {
 	OpenResource(ctx context.Context, digest string) (resource.Blob, error)
 	Dispatch(ctx context.Context, target catalog.Entry, bundle []byte, follow bool, submitter taskboard.Party, ev func(dispatch.Event)) (dispatch.Event, error)
 	CollectQueue(ctx context.Context) []dispatch.QueueItem
-	Cancel(ctx context.Context, id string) error
+	Cancel(ctx context.Context, id string) (string, error)
 	FindPeer(id string) (catalog.Entry, bool)
 }
 

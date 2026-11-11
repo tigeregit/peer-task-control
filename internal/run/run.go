@@ -46,6 +46,8 @@ type Options struct {
 	Start time.Time
 	// RunID overrides the record id (mesh queue assigns one at enqueue).
 	RunID string
+	// DeferRecord lets the dispatch queue write the final, coordinated status.
+	DeferRecord bool
 	// Fetch downloads a seed by digest from the mesh (closest replica).
 	// Nil means digest seeds must already be on this node.
 	Fetch func(ctx context.Context, digest string) (resource.Blob, error)
@@ -186,8 +188,9 @@ func Submit(loaded workflow.Loaded, opt Options) (res Result, retErr error) {
 		job.EndedAt = taskboard.PtrTime(opt.Now())
 		res.Status = "failure"
 		res.Task = finishTask(loaded, host, start, opt.Now(), res.Status, "prepare failed: "+err.Error(), "", job, snapshotWorktree(loaded, workRoot, seeds), opt.Dispatch, opt.RunID)
-		res.TaskPath, _ = writeTask(runsDir, res.Task)
-		return res, err
+		var recordErr error
+		res.TaskPath, recordErr = writeTaskIfNeeded(runsDir, res.Task, opt.DeferRecord)
+		return res, errors.Join(err, recordErr)
 	}
 
 	runFailed := error(nil)
@@ -229,7 +232,7 @@ func Submit(loaded workflow.Loaded, opt Options) (res Result, retErr error) {
 	}
 	res.Task = finishTask(loaded, host, start, end, res.Status, summary, digest, job, snapshotWorktree(loaded, workRoot, seeds), opt.Dispatch, opt.RunID)
 	var werr error
-	res.TaskPath, werr = writeTask(runsDir, res.Task)
+	res.TaskPath, werr = writeTaskIfNeeded(runsDir, res.Task, opt.DeferRecord)
 	if res.Status == "success" {
 		return res, werr
 	}
@@ -385,7 +388,7 @@ func runCommand(loaded workflow.Loaded, workRoot string, step workflow.Step, opt
 	var buf bytes.Buffer
 	cmd.Stdout = io.MultiWriter(&buf, opt.Stdout)
 	cmd.Stderr = io.MultiWriter(&buf, opt.Stdout)
-	err = cmd.Run()
+	err = runProcess(cmd)
 	st.Log = buf.String()
 	st.EndedAt = taskboard.PtrTime(opt.Now())
 	if err != nil {
@@ -662,10 +665,18 @@ func writeTask(dir string, t taskboard.Task) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+
 	path := filepath.Join(dir, t.ID+".json")
 	b, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return "", err
 	}
 	return path, os.WriteFile(path, b, 0o644)
+}
+
+func writeTaskIfNeeded(dir string, t taskboard.Task, deferRecord bool) (string, error) {
+	if deferRecord {
+		return "", nil
+	}
+	return writeTask(dir, t)
 }

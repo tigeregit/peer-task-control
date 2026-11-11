@@ -117,6 +117,7 @@ func Execute(ctx context.Context, bundle []byte, job Job, exec Host, opt run.Opt
 	opt.Context = ctx
 	opt.Start = start
 	opt.RunID = job.RunID
+	opt.DeferRecord = true
 	opt.Stdout = log
 	opt.SeedOverrides = overrides
 	opt.Dispatch = &run.DispatchInfo{
@@ -132,5 +133,10 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	return os.Rename(tmp, path)
 }

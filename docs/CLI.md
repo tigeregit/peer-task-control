@@ -440,7 +440,7 @@ ptc submit --workflow docs/templates/seed-workflow.example.yaml --target replica
 
 ### `ptc queue`
 
-列出各节点处于 `queued` 或 `running` 的作业。已结束的作业看 `ptc tasks` 或看板。
+列出各节点处于 `queued`、`running` 或 `cancelling` 的作业。已结束的作业看 `ptc tasks` 或看板。
 
 ```text
 ptc queue
@@ -454,7 +454,7 @@ ptc queue --node host --json
 
 ### `ptc cancel`
 
-取消一个排队中或正在运行的作业（仅 CLI）。已结束的作业会报错。Follow 断开不会自动取消。
+取消一个排队中或正在运行的作业（仅 CLI）。排队任务立即返回 `cancelled`；运行中任务先返回 `cancelling`，停止进程树并完成记录后变为 `cancelled`，在此期间仍占用并发槽。已结束的作业会报错，超时记为失败而不是用户取消。Follow 断开不会自动取消。
 
 ```text
 ptc cancel run-20260101T000000Z-test

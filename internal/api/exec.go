@@ -76,9 +76,10 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `pass {"id":"<run-id or job-id>"}`, http.StatusBadRequest)
 		return
 	}
-	if err := s.Node.Cancel(r.Context(), in.ID); err != nil {
+	status, err := s.Node.Cancel(r.Context(), in.ID)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled", "id": in.ID})
+	writeJSON(w, http.StatusOK, map[string]string{"status": status, "id": in.ID})
 }
