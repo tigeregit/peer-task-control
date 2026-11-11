@@ -13,7 +13,7 @@ body:
     attributes:
       label: ptc version
       description: Paste the full output of `ptc version`.
-      placeholder: 0.3.0-dev
+      placeholder: 0.3.0
     validations:
       required: true
   - type: input

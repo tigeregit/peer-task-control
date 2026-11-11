@@ -2,7 +2,7 @@
 
 [English](../CLI.md) | [中文](CLI.md)
 
-对应开发版本：**0.3.0-dev**。正式构建的版本由 Release 标签写入；以 `ptc version` 和 `ptc --help` 为准。
+对应版本：**0.3.0**。正式构建的版本由 Release 标签写入；以 `ptc version` 和 `ptc --help` 为准。
 
 在线帮助：
 
@@ -86,7 +86,7 @@ workspace 必须与实际做种、下载、记录和协调元数据目录分离�
 
 ### `ptc version`
 
-打印二进制版本（开发构建为 `0.3.0-dev`，Release 构建为标签去掉 `v`），后接换行。不需要配置或正在运行的 daemon。
+打印二进制版本（本仓库为 `0.3.0`，Release 构建为标签去掉 `v`），后接换行。不需要配置或正在运行的 daemon。
 
 ### `ptc skill sync`
 
@@ -230,7 +230,7 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 {
   "name": "worker-a",
   "peer_id": "<libp2p peer id>",
-  "version": "0.3.0-dev",
+  "version": "0.3.0",
   "listen": ["<multiaddr>", "..."],
   "peers": [
     {
@@ -446,7 +446,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | `{"status":"ok"}` |
-| `GET` | `/api/v1/version` | `{"version":"0.3.0-dev"}`（Release 返回实际标签版本） |
+| `GET` | `/api/v1/version` | `{"version":"0.3.0"}`（Release 返回实际标签版本） |
 | `GET` | `/api/v1/status` | 与 `ptc peers --json` 相同的状态对象 |
 | `GET` | `/api/v1/peers` | `{"peers":[...]}`，不含本机 `name` / `version` 包装 |
 | `GET` | `/api/v1/policy` | 当前策略 |

@@ -4,7 +4,7 @@
 
 实现时要遵守的设计要点见 [DESIGN.md](DESIGN.md)。完整草案以 [设计 Page](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413) 为准。
 
-当前开发版号是 `0.3.0-dev`（见 `internal/version/version.go`）。GitHub `main` 上的已发布标签以 Releases 为准。
+当前版本是 `0.3.0`（见 `internal/version/version.go`）。GitHub `main` 上的已发布标签以 Releases 为准。
 
 ## 已完成
 

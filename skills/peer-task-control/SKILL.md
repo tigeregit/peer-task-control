@@ -5,7 +5,7 @@ description: >
   Use when the user wants to run ptc, submit or cancel a job, pick a GPU
   node, inspect tasks/resources/queue/disk, or clean local storage.
 metadata:
-  version: "0.3.0-dev"
+  version: "0.3.0"
 ---
 
 # peer-task-control

@@ -8,7 +8,7 @@ import (
 // Version is the release identifier embedded in the binary and in skill text.
 // It is a var so release builds can set it with
 // -ldflags "-X github.com/tigeregit/peer-task-control/internal/version.Version=?".
-var Version = "0.3.0-dev"
+var Version = "0.3.0"
 
 // SkillName is the version-bound skill identifier.
 const SkillName = "peer-task-control"

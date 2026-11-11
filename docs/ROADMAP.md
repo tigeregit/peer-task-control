@@ -4,7 +4,7 @@
 
 Implementation constraints are in [DESIGN.md](DESIGN.md). The full draft is the [design Page](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413).
 
-The current development version is `0.3.0-dev` (see `internal/version/version.go`). Published tags on GitHub `main` are listed in Releases.
+The current version is `0.3.0` (see `internal/version/version.go`). Published tags on GitHub `main` are listed in Releases.
 
 ## Done
 

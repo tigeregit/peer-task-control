@@ -2,7 +2,7 @@
 
 [English](CLI.md) | [中文](zh/CLI.md)
 
-Applies to development version **0.3.0-dev**. Official builds write the version from the Release tag. `ptc version` and `ptc --help` are authoritative.
+Applies to version **0.3.0**. Official builds write the version from the Release tag. `ptc version` and `ptc --help` are authoritative.
 
 Online help:
 
@@ -86,7 +86,7 @@ At runtime the workspace is checked about every 250ms, seed space about every 1s
 
 ### `ptc version`
 
-Prints the binary version (development builds are `0.3.0-dev`; Release builds are the tag without `v`), followed by a newline. No config or running daemon is required.
+Prints the binary version (this tree is `0.3.0`; Release builds are the tag without `v`), followed by a newline. No config or running daemon is required.
 
 ### `ptc skill sync`
 
@@ -230,7 +230,7 @@ A node that has turned some services off still appears in the catalog; the corre
 {
   "name": "worker-a",
   "peer_id": "<libp2p peer id>",
-  "version": "0.3.0-dev",
+  "version": "0.3.0",
   "listen": ["<multiaddr>", "..."],
   "peers": [
     {
@@ -445,7 +445,7 @@ The CLI calls the daemon's loopback API over HTTP (default `http://127.0.0.1:187
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | `{"status":"ok"}` |
-| `GET` | `/api/v1/version` | `{"version":"0.3.0-dev"}` (a Release returns the actual tag version) |
+| `GET` | `/api/v1/version` | `{"version":"0.3.0"}` (a Release returns the actual tag version) |
 | `GET` | `/api/v1/status` | The same status object as `ptc peers --json` |
 | `GET` | `/api/v1/peers` | `{"peers":[...]}`, without the local `name` / `version` wrapper |
 | `GET` | `/api/v1/policy` | Current policy |
