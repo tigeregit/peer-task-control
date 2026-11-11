@@ -99,3 +99,17 @@ func TestResolveTarget(t *testing.T) {
 		t.Fatal("expected not found")
 	}
 }
+
+func TestSeedOnlyPlacementRequiresFilesNotExec(t *testing.T) {
+	node := catalog.Entry{Name: "replica", Services: map[string]catalog.ServiceState{
+		"exec": {Enabled: false}, "files": {Enabled: true, Offered: true},
+	}}
+	loaded := workflow.Loaded{SeedOnly: true}
+	if err := CheckJobPlacement(loaded, node); err != nil {
+		t.Fatal(err)
+	}
+	node.Services["files"] = catalog.ServiceState{Enabled: false, Offered: false}
+	if err := CheckJobPlacement(loaded, node); err == nil {
+		t.Fatal("seed-only task accepted files-disabled node")
+	}
+}

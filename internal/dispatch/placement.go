@@ -16,6 +16,17 @@ type PlacementError struct {
 	Reason string
 }
 
+func CheckJobPlacement(loaded workflow.Loaded, entry catalog.Entry) error {
+	if !loaded.SeedOnly {
+		return CheckPlacement(loaded.Prepare.Target, entry)
+	}
+	files := entry.Services["files"]
+	if !files.Enabled || !files.Offered {
+		return &PlacementError{Code: "files_off", Node: entry.Name, Reason: fmt.Sprintf("seed-only task requires an enabled files service on %s", entry.Name)}
+	}
+	return nil
+}
+
 func (e *PlacementError) Error() string { return e.Reason }
 
 // CheckPlacement reports whether entry may run a job with target t.

@@ -1,0 +1,8 @@
+name: Replicate resources without execution
+jobs:
+  seed:
+    steps:
+      - name: Seed resources
+        uses: ptc/seed@v0
+        with:
+          file: seeds.yaml

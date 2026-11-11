@@ -4,9 +4,19 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/tigeregit/peer-task-control/internal/resource"
 )
 
 func ValidateJob(jobName string, job Job) error {
+	for _, s := range job.Steps {
+		if usesAction(s.Uses, "ptc/seed") {
+			if len(job.Steps) != 1 || !isSeedStep(s) || s.Run != "" || s.If != "" {
+				return fmt.Errorf("job %q: ptc/seed@v0 must be the only step, with.file and no run or if", jobName)
+			}
+			return nil
+		}
+	}
 	if len(job.Steps) < 2 {
 		return fmt.Errorf("job %q must start with Prepare and end with Package result", jobName)
 	}
@@ -26,6 +36,32 @@ func ValidateJob(jobName string, job Job) error {
 		}
 		if strings.TrimSpace(s.Uses) != "" && !strings.HasPrefix(strings.TrimSpace(s.Uses), "ptc/") {
 			return fmt.Errorf("job %q: step %d uses %q is not supported (marketplace actions are not run)", jobName, i+2, s.Uses)
+		}
+	}
+	return nil
+}
+
+func ValidateSeeds(seeds []Seed) error {
+	if len(seeds) == 0 {
+		return fmt.Errorf("seed: seeds is required")
+	}
+	seen := map[string]bool{}
+	for _, s := range seeds {
+		if strings.TrimSpace(s.Name) == "" || seen[s.Name] {
+			return fmt.Errorf("seed: names must be nonempty and unique: %q", s.Name)
+		}
+		seen[s.Name] = true
+		if s.Dest != "" || s.Entrypoint {
+			return fmt.Errorf("seed %s: dest and entrypoint are not supported by seed-only actions", s.Name)
+		}
+		if s.Digest != "" && resource.Normalize(s.Digest) == "" {
+			return fmt.Errorf("seed %s: invalid sha256 digest", s.Name)
+		}
+		if s.CID != "" || s.Source != nil {
+			return fmt.Errorf("seed %s: use local or sha256 digest; CID/dataset resolution is not supported", s.Name)
+		}
+		if (s.Local == nil || s.Local.Src == "") && s.Digest == "" {
+			return fmt.Errorf("seed %s: a local source or sha256 digest is required", s.Name)
 		}
 	}
 	return nil

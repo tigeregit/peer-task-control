@@ -1,9 +1,12 @@
 package workflow
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -23,6 +26,7 @@ type Loaded struct {
 	PrepareStep Step
 	PackageStep Step
 	RunSteps    []Step
+	SeedOnly    bool
 }
 
 func LoadWorkflow(path string) (Workflow, error) {
@@ -106,6 +110,11 @@ func LoadJob(workflowPath, jobName string) (Loaded, error) {
 	if err := ValidateJob(name, job); err != nil {
 		return out, err
 	}
+	if isSeedStep(job.Steps[0]) {
+		out.SeedOnly = true
+		out.PrepareStep = job.Steps[0]
+		return finishSeedLoad(out, resolve(out.Dir, out.PrepareStep.WithFile()))
+	}
 	out.PrepareStep = job.Steps[0]
 	out.PackageStep = job.Steps[len(job.Steps)-1]
 	out.RunSteps = job.Steps[1 : len(job.Steps)-1]
@@ -135,6 +144,11 @@ func LoadJobFiles(workflowPath, preparePath, packagePath, jobName string) (Loade
 	if err := ValidateJob(name, job); err != nil {
 		return out, err
 	}
+	if isSeedStep(job.Steps[0]) {
+		out.SeedOnly = true
+		out.PrepareStep = job.Steps[0]
+		return finishSeedLoad(out, preparePath)
+	}
 	out.PrepareStep = job.Steps[0]
 	out.PackageStep = job.Steps[len(job.Steps)-1]
 	out.RunSteps = job.Steps[1 : len(job.Steps)-1]
@@ -158,6 +172,39 @@ func finishLoad(out Loaded, prepPath, pkgPath string) (Loaded, error) {
 	if err := ValidatePackage(pkg, prep); err != nil {
 		return out, err
 	}
+	return out, nil
+}
+
+func finishSeedLoad(out Loaded, file string) (Loaded, error) {
+	var p Prepare
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return out, err
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(b))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&p); err != nil {
+		return out, fmt.Errorf("%s: %w", file, err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return out, fmt.Errorf("%s: expected one Seed document", file)
+	}
+	if p.APIVersion != "ptc/v0" || p.Kind != "Seed" {
+		return out, fmt.Errorf("%s: seed action requires apiVersion: ptc/v0 and kind: Seed", file)
+	}
+	// A Seed document cannot opt back into workspace construction or execution.
+	if !reflect.ValueOf(p.Workspace).IsZero() {
+		return out, fmt.Errorf("seed: workspace is not supported")
+	}
+	if !reflect.ValueOf(p.Layout).IsZero() || len(p.Outputs) != 0 {
+		return out, fmt.Errorf("seed: layout and outputs are not supported")
+	}
+	if err := ValidateSeeds(p.Seeds); err != nil {
+		return out, err
+	}
+	no := false
+	p.Target.RequireNVIDIA, p.Target.DenyNonExec = &no, &no
+	out.Prepare, out.PreparePath = p, file
 	return out, nil
 }
 
@@ -244,10 +291,15 @@ func isPackageStep(s Step) bool {
 	if !usesAction(s.Uses, "ptc/package-result") {
 		return false
 	}
+
 	if s.WithFile() == "" {
 		return false
 	}
 	name := strings.TrimSpace(s.Name)
 	id := strings.TrimSpace(s.ID)
 	return strings.EqualFold(name, "Package result") || strings.EqualFold(id, "package-result")
+}
+
+func isSeedStep(s Step) bool {
+	return strings.TrimSpace(s.Uses) == "ptc/seed@v0" && s.WithFile() != ""
 }

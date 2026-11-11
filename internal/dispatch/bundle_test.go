@@ -1,7 +1,10 @@
 package dispatch
 
 import (
+	"archive/tar"
 	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +198,67 @@ func TestUnpackRejectsGarbage(t *testing.T) {
 	_, err := Unpack(bytes.NewReader([]byte("not a tar")), t.TempDir())
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestSeedBundleRejectsMissingDuplicateOrSkippedPlans(t *testing.T) {
+	loaded, err := workflow.LoadJob(filepath.Join("..", "..", "testdata", "seed", "workflow.yaml"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := Build(loaded, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"missing", "duplicate", "skip-required"} {
+		t.Run(mode, func(t *testing.T) {
+			tr := tar.NewReader(bytes.NewReader(bundle.Data))
+			var data bytes.Buffer
+			tw := tar.NewWriter(&data)
+			for {
+				h, err := tr.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := io.ReadAll(tr)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if h.Name == manifestName {
+					var man Manifest
+					if err := json.Unmarshal(body, &man); err != nil {
+						t.Fatal(err)
+					}
+					switch mode {
+					case "missing":
+						man.Seeds = man.Seeds[:1]
+					case "duplicate":
+						man.Seeds = append(man.Seeds, man.Seeds[0])
+					case "skip-required":
+						man.Seeds[0].Mode = SeedSkip
+					}
+					body, err = json.Marshal(man)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				h.Size = int64(len(body))
+				if err := tw.WriteHeader(h); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tw.Write(body); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := tw.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Unpack(bytes.NewReader(data.Bytes()), t.TempDir()); err == nil {
+				t.Fatalf("accepted %s plan", mode)
+			}
+		})
 	}
 }

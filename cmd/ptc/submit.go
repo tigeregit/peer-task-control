@@ -24,8 +24,11 @@ func submitCmd() *cobra.Command {
 	var inlineMax int64
 	cmd := &cobra.Command{
 		Use:   "submit --workflow <file>",
-		Short: "Run a workflow locally, or dispatch it to a mesh exec node with --target",
+		Short: "Run or dispatch a workflow, or retain resources with a seed-only action",
 		Long: `Parses an Actions-style workflow whose first step is Prepare and last step is Package result.
+Alternatively, a single ptc/seed@v0 step with with.file pointing at a kind: Seed
+YAML retains and advertises resources without creating a workspace, running
+commands, or packaging results. Remote seed-only tasks require files, not exec.
 
 Without --target the job runs on this machine. With --target <node|peer-id> the
 local daemon sends the job over /ptc/exec/1.0.0 to that node. --target auto
@@ -55,9 +58,9 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 			}
 			if dryRun {
 				if jsonOut {
-					return printJSON(map[string]any{"ok": true, "job": loaded.JobName, "prepare": loaded.PreparePath, "package": loaded.PackagePath, "run_steps": len(loaded.RunSteps), "target": target})
+					return printJSON(map[string]any{"ok": true, "job": loaded.JobName, "prepare": loaded.PreparePath, "package": loaded.PackagePath, "run_steps": len(loaded.RunSteps), "target": target, "seed_only": loaded.SeedOnly})
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "ok: job %q\n  prepare: %s\n  package: %s\n  run steps: %d\n", loaded.JobName, loaded.PreparePath, loaded.PackagePath, len(loaded.RunSteps))
+				fmt.Fprintf(cmd.OutOrStdout(), "ok: job %q\n  prepare: %s\n  package: %s\n  run steps: %d\n  seed only: %v\n", loaded.JobName, loaded.PreparePath, loaded.PackagePath, len(loaded.RunSteps), loaded.SeedOnly)
 				if target != "" {
 					fmt.Fprintf(cmd.OutOrStdout(), "  target: %s (not sent; --dry-run)\n", target)
 				}
@@ -70,6 +73,10 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 			if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 				return err
 			}
+			logs := cmd.OutOrStdout()
+			if jsonOut {
+				logs = cmd.ErrOrStderr()
+			}
 			res, err := run.Submit(loaded, run.Options{
 				DataDir:      cfg.DataDir,
 				SeedsDir:     cfg.SeedsDir(),
@@ -77,7 +84,18 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 				RunsDir:      cfg.RunsDir(),
 				Force:        force,
 				KeepWorktree: keep,
-				Stdout:       cmd.OutOrStdout(),
+				Stdout:       logs,
+				Context:      cmd.Context(),
+				Fetch: func(ctx context.Context, digest string) (resource.Blob, error) {
+					cli, err := controlClient()
+					if err != nil {
+						return resource.Blob{}, err
+					}
+					if err := ctx.Err(); err != nil {
+						return resource.Blob{}, err
+					}
+					return cli.ResourceContent(digest)
+				},
 			})
 			if jsonOut {
 				_ = printJSON(map[string]any{"run_id": res.ID, "status": res.Status, "digest": res.Digest, "task": res.TaskPath, "worktree": res.Worktree})
@@ -95,7 +113,7 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 	}
 	cmd.Flags().String("workflow", "", "path to the workflow YAML")
 	cmd.Flags().StringVar(&jobName, "job", "", "job name (required if the workflow has more than one job)")
-	cmd.Flags().StringVar(&target, "target", "", "node name, peer id, or auto (omit to run locally)")
+	cmd.Flags().StringVar(&target, "target", "", "node name, peer id, or auto (exec for normal jobs, files for seed-only; omit for local)")
 	cmd.Flags().BoolVar(&detach, "detach", false, "return after the job is queued (default is to follow until done)")
 	cmd.Flags().StringVar(&fetchDir, "fetch-result", "", "after a successful follow, download the result package into this directory")
 	cmd.Flags().Int64Var(&inlineMax, "inline-max", dispatch.DefaultInlineMax, "largest local seed (bytes) to ship in the bundle; larger seeds are published and pulled by digest; -1 means never inline")
@@ -215,6 +233,24 @@ func errString(err error) string {
 
 func resolveSubmitTarget(target string, loaded workflow.Loaded, peers []catalog.Entry) (catalog.Entry, error) {
 	t := loaded.Prepare.Target
+	if loaded.SeedOnly && target == "auto" {
+		var eligible []catalog.Entry
+		for _, e := range peers {
+			if dispatch.CheckJobPlacement(loaded, e) == nil {
+				eligible = append(eligible, e)
+			}
+		}
+		if len(eligible) == 0 {
+			return catalog.Entry{}, fmt.Errorf("no eligible files node for seed-only task")
+		}
+		best := eligible[0]
+		for _, e := range eligible[1:] {
+			if e.Name < best.Name {
+				best = e
+			}
+		}
+		return best, nil
+	}
 	if target == "auto" {
 		e, err := dispatch.PickAuto(t, peers)
 		if err != nil {
@@ -226,7 +262,7 @@ func resolveSubmitTarget(target string, loaded workflow.Loaded, peers []catalog.
 	if err != nil {
 		return e, err
 	}
-	if err := dispatch.CheckPlacement(t, e); err != nil {
+	if err := dispatch.CheckJobPlacement(loaded, e); err != nil {
 		return e, err
 	}
 	return e, nil

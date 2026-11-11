@@ -1,0 +1,8 @@
+name: Disaster recovery replicas
+jobs:
+  seed:
+    steps:
+      - name: Seed resources
+        uses: ptc/seed@v0
+        with:
+          file: seeds.example.yaml

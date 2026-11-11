@@ -104,6 +104,9 @@ func Build(loaded workflow.Loaded, opt BuildOptions) (*Bundle, error) {
 		{loaded.PreparePath, prepareName},
 		{loaded.PackagePath, packageName},
 	} {
+		if f.src == "" {
+			continue
+		}
 		b, err := os.ReadFile(f.src)
 		if err != nil {
 			return nil, err
@@ -212,7 +215,7 @@ func planSeed(tw *tar.Writer, i int, seed workflow.Seed, base string, inlineMax 
 		return plan, nil
 	}
 	if seed.CID != "" || seed.Source != nil {
-		return plan, fmt.Errorf("cid/source seeds need bitswap (P1), which is not implemented; use seeds.local or a sha256 digest")
+		return plan, fmt.Errorf("CID/dataset source resolution is not supported; use seeds.local or a sha256 digest")
 	}
 	return plan, fmt.Errorf("no local source or digest")
 }
@@ -253,10 +256,15 @@ func Unpack(r io.Reader, dir string) (*Unpacked, error) {
 	for _, s := range loaded.Prepare.Seeds {
 		declared[s.Name] = true
 	}
+	planned := map[string]bool{}
 	for _, p := range man.Seeds {
 		if !declared[p.Name] {
 			return nil, fmt.Errorf("bundle seed %q is not declared in prepare.yaml", p.Name)
 		}
+		if planned[p.Name] {
+			return nil, fmt.Errorf("bundle has duplicate seed plan %q", p.Name)
+		}
+		planned[p.Name] = true
 		switch p.Mode {
 		case SeedInline:
 			rel, err := cas.SafeRel(p.Path)
@@ -276,8 +284,25 @@ func Unpack(r io.Reader, dir string) (*Unpacked, error) {
 			}
 			u.Digests[p.Name] = d
 		case SeedSkip:
+			for i, seed := range u.Loaded.Prepare.Seeds {
+				if seed.Name == p.Name {
+					if seed.IsRequired() {
+						return nil, fmt.Errorf("required seed %s cannot be skipped", p.Name)
+					}
+					// Never resolve the submitter's local paths on a files-only target.
+					u.Loaded.Prepare.Seeds[i].Local = nil
+					u.Loaded.Prepare.Seeds[i].Digest = ""
+					u.Loaded.Prepare.Seeds[i].CID = ""
+					u.Loaded.Prepare.Seeds[i].Source = nil
+				}
+			}
 		default:
 			return nil, fmt.Errorf("seed %s has unknown mode %q", p.Name, p.Mode)
+		}
+	}
+	for name := range declared {
+		if !planned[name] {
+			return nil, fmt.Errorf("bundle has no plan for seed %q", name)
 		}
 	}
 	return u, nil

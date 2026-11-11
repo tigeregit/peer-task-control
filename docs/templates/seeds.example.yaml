@@ -1,0 +1,11 @@
+apiVersion: ptc/v0
+kind: Seed
+metadata:
+  name: Disaster recovery resources
+# Replace each digest with a value from `ptc resources --json`.
+# No workspace, layout, dest, entrypoint, run or Package result.
+seeds:
+  - name: dataset-replica
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  - name: program-replica
+    digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"

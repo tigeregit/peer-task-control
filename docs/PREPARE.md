@@ -17,7 +17,7 @@ CUDA 不得派到无 NVIDIA 的网关。缺文件时只从副本取数，不能�
 
 ## Prepare 是必须步骤
 
-每个 job 的第一个 step 必须是 Prepare，并且用 `with.file` 指向那份 YAML。缺少、不是第一条、或没有文件指针，提交时应直接拒绝，不建工作树。约定写法：
+普通执行 job 的第一个 step 必须是 Prepare，并且用 `with.file` 指向那份 YAML。缺少、不是第一条、或没有文件指针，提交时应直接拒绝，不建工作树。纯做种 job 是例外，见下方「纯做种任务」。约定写法：
 
 ```yaml
 jobs:
@@ -62,4 +62,45 @@ workflow 里只保留这一处指针；实现约定全部写在被指向的 YAML
 
 ## 状态
 
-本机已可用 `ptc submit --workflow ...` 解析并执行 Prepare（见 `testdata/submit/`）。网格下发，以及只用 CID / dataset 源、不带 `seeds.local` 的取种，尚未实现。完整模板里的示例哈希只是占位。
+本机与 `--target` 网格下发均支持 `seeds.local` 和已发布的 sha256 digest；接收节点校验后自动发布为本机副本。CID / dataset 源解析尚未实现。完整模板里的示例哈希只是占位。
+
+## 纯做种任务
+
+`ptc/seed@v0` 是独立 action，必须是 job 唯一的 step。它只获取、校验、保存并公开资源集合；不会创建工作树、检查 GPU、运行命令或打结果包。运行记录仍会保存，远端仍使用持久队列，可 follow / cancel。此 action 不能与 Prepare / run / Package result 混用，也不接受 step `run` / `if`。
+
+workflow：
+
+```yaml
+name: Resource replicas
+jobs:
+  seed:
+    steps:
+      - name: Seed resources
+        uses: ptc/seed@v0
+        with:
+          file: seeds.yaml
+```
+
+`seeds.yaml`（把示例摘要替换为 `ptc resources --json` 中的真实值）：
+
+```yaml
+apiVersion: ptc/v0
+kind: Seed
+metadata:
+  name: Disaster recovery replicas
+seeds:
+  - name: dataset
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  - name: program
+    digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+```
+
+每项也可用 `local: {src: <相对于 workflow 的路径>}`，默认 `required: true`；可选项失败会记日志。名称必须唯一。不填写 `workspace`、`layout`、`outputs`、`dest` 或 `entrypoint`。目录原摘要保留，blob 按原 sha256 放入 CAS；目录可用 `data: {pin_permanent: true}` 防止普通 clean 删除，blob 暂不支持此 pin 选项。
+
+```text
+ptc submit --workflow docs/templates/seed-workflow.example.yaml --dry-run --json
+ptc submit --workflow docs/templates/seed-workflow.example.yaml --target replica-node --json
+ptc submit --workflow testdata/seed/workflow.yaml --json
+```
+
+前两条使用 [workflow 模板](templates/seed-workflow.example.yaml) 和 [资源集合模板](templates/seeds.example.yaml)，实际提交前必须替换摘要。最后一条是无需网格资源即可运行的本地示例。省略 `--target` 时，缺失的 digest 通过本机 daemon 获取；远程只要求 `files` 开启，不要求 exec / GPU，因此可部署到文件节点或网关。`--target auto` 对纯做种任务只选择 files 节点；要明确提升容灾性，应向指定的不同节点分别提交。副本留在种子存储，源节点离线后仍可继续提供资源；不是周期性副本修复控制器。

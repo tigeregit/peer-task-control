@@ -1,0 +1,11 @@
+apiVersion: ptc/v0
+kind: Seed
+metadata:
+  name: Seed-only example
+seeds:
+  - name: scene-replica
+    local:
+      src: ../submit/scene
+  - name: input-blob
+    local:
+      src: ../submit/scene/input.txt

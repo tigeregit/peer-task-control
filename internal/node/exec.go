@@ -99,7 +99,7 @@ func (n *Node) handleExec(s network.Stream) {
 	}
 	ip := streamIP(s)
 	remote := s.Conn().RemotePeer().String()
-	if d := n.Store.Check("exec", remote, req.Submitter.Node, ip); !d.Allow {
+	if d := n.Store.Check("exec", remote, req.Submitter.Node, ip); !d.Allow && !n.Store.Check("files", remote, req.Submitter.Node, ip).Allow {
 		_ = dispatch.WriteLine(s, dispatch.Event{Type: "error", Error: "policy refused exec: " + d.Reason})
 		return
 	}
@@ -115,7 +115,7 @@ func (n *Node) handleExec(s network.Stream) {
 	}
 	_ = s.SetDeadline(time.Time{}) // follow may last as long as the job
 
-	job, ev, err := n.acceptBundle(bundle, req, remote)
+	job, ev, err := n.acceptBundle(bundle, req, remote, ip)
 	if err != nil {
 		_ = dispatch.WriteLine(s, dispatch.Event{Type: "error", Error: err.Error()})
 		return
@@ -140,15 +140,30 @@ func (n *Node) handleExec(s network.Stream) {
 	}
 }
 
-func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer string) (dispatch.Job, dispatch.Event, error) {
+func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer string, ip net.IP) (dispatch.Job, dispatch.Event, error) {
 	stage := n.Cfg.FetchTmpDir()
-	tmp := fmt.Sprintf("%s/accept-%d", stage, time.Now().UnixNano())
+	tmp, err := os.MkdirTemp(stage, "accept-")
+	if os.IsNotExist(err) {
+		if err = os.MkdirAll(stage, 0o755); err == nil {
+			tmp, err = os.MkdirTemp(stage, "accept-")
+		}
+	}
+	if err != nil {
+		return dispatch.Job{}, dispatch.Event{}, err
+	}
 	u, err := dispatch.Unpack(bytes.NewReader(bundle), tmp)
 	defer func() { _ = removeAll(tmp) }()
 	if err != nil {
 		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("unpack bundle: %w", err)
 	}
-	if err := dispatch.CheckPlacement(u.Loaded.Prepare.Target, n.LocalEntry()); err != nil {
+	service := "exec"
+	if u.Loaded.SeedOnly {
+		service = "files"
+	}
+	if d := n.Store.Check(service, remotePeer, req.Submitter.Node, ip); !d.Allow {
+		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("policy refused %s: %s", service, d.Reason)
+	}
+	if err := dispatch.CheckJobPlacement(u.Loaded, n.LocalEntry()); err != nil {
 		return dispatch.Job{}, dispatch.Event{}, err
 	}
 	n.mu.Lock()

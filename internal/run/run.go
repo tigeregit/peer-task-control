@@ -107,7 +107,7 @@ func (opt Options) runsDir() string {
 }
 
 func (opt Options) FetchTmpDir() string {
-	return filepath.Join(opt.worktreesDir(), ".fetch")
+	return filepath.Join(opt.seedsDir(), ".fetch")
 }
 
 func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
@@ -126,6 +126,9 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 	start := opt.Start
 	if start.IsZero() {
 		start = opt.Now()
+	}
+	if loaded.SeedOnly {
+		return submitSeeds(loaded, start, opt)
 	}
 	id := start.UTC().Format("20060102T150405Z")
 	host, _ := os.Hostname()
@@ -251,7 +254,8 @@ func runPrepare(loaded workflow.Loaded, workRoot string, store *cas.Store, start
 			continue
 		}
 		if pub, err := resource.PublishTreeTo(opt.packagesDir(), seed.Name, dest, start); err != nil {
-			fmt.Fprintf(&log, "seed %s publish warning: %v\n", seed.Name, err)
+			st.Status, st.Log, st.EndedAt = "failure", log.String()+"\n"+err.Error(), taskboard.PtrTime(opt.Now())
+			return st, seeds, fmt.Errorf("publish seed %s: %w", seed.Name, err)
 		} else {
 			ws.Digest = pub.Digest
 			ws.Size = pub.Size
@@ -310,7 +314,7 @@ func materializeSeed(base string, seed workflow.Seed, dest string, store *cas.St
 	case seed.Digest != "":
 		return materializeDigest(seed.Name, seed.Digest, dest, store, log, opt)
 	case seed.CID != "" || (seed.Source != nil && seed.Source.Dataset != ""):
-		return fmt.Errorf("cid/source seeds need bitswap (P1), which is not implemented; use seeds.local or a sha256 digest published on the mesh")
+		return fmt.Errorf("CID/dataset source resolution is not supported; use seeds.local or a sha256 digest published on the mesh")
 	default:
 		return fmt.Errorf("no retrieval method")
 	}
