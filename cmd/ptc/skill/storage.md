@@ -56,4 +56,4 @@ Drain tasks started by older versions before cleaning, and do not remove
 the reserved `.ptc-locks` directory.
 
 Disk pressure: `ptc peers show <name> --json` shows real volume totals and
-ptc usage. See [docs/CLI.md](docs/CLI.md#全局存储规则).
+ptc usage. See [docs/CLI.md](docs/CLI.md#global-storage-rules).
