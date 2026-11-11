@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"sync"
 	"time"
 
 	boxo "github.com/ipfs/boxo/bitswap"
@@ -30,6 +32,8 @@ const (
 	maxBlockSize    = 1 << 20
 	maxLegacyChunks = 10000
 )
+
+var ErrSizeLimit = errors.New("resource transport exceeds storage budget")
 
 // Manifest describes a PTC blob or tar transport, not a UnixFS DAG. Its CID and
 // all chunk and index CIDs are raw SHA-256 CIDs, usable by a standard Bitswap client.
@@ -60,9 +64,10 @@ type FetchStats struct {
 }
 
 type Exchange struct {
-	store  *Store
-	swap   *boxo.Bitswap
-	events *bsnetwork.ConnectEventManager
+	operations sync.RWMutex
+	store      *Store
+	swap       *boxo.Bitswap
+	events     *bsnetwork.ConnectEventManager
 }
 
 // circuitHost opts only Bitswap's streams into the existing circuit-v2 policy.
@@ -174,6 +179,8 @@ func (e *Exchange) GetBlock(ctx context.Context, c cid.Cid) (blocks.Block, error
 }
 
 func (e *Exchange) Export(ctx context.Context, digest, kind string, r io.Reader) (cid.Cid, error) {
+	e.operations.RLock()
+	defer e.operations.RUnlock()
 	m := Manifest{Version: 1, Digest: digest, Kind: kind}
 	var tree *indexBuilder
 	buf := make([]byte, ChunkSize)
@@ -235,6 +242,13 @@ func (e *Exchange) Fetch(ctx context.Context, root cid.Cid, digest string, w io.
 
 // FetchWithStats counts processed blocks, including indexes, cache hits and repeats.
 func (e *Exchange) FetchWithStats(ctx context.Context, root cid.Cid, digest string, w io.Writer) (m Manifest, st FetchStats, retErr error) {
+	return e.FetchLimited(ctx, root, digest, w, math.MaxInt64)
+}
+
+// FetchLimited checks the manifest size before requesting any payload blocks.
+func (e *Exchange) FetchLimited(ctx context.Context, root cid.Cid, digest string, w io.Writer, maxSize int64) (m Manifest, st FetchStats, retErr error) {
+	e.operations.RLock()
+	defer e.operations.RUnlock()
 	st.Root = root.String()
 	t0 := time.Now()
 	defer func() {
@@ -252,6 +266,9 @@ func (e *Exchange) FetchWithStats(ctx context.Context, root cid.Cid, digest stri
 	}
 	if m.Digest != digest || (m.Kind != "blob" && m.Kind != "tree") || m.Size < 0 {
 		return m, st, fmt.Errorf("invalid resource transport manifest")
+	}
+	if m.Size > maxSize {
+		return m, st, fmt.Errorf("%w: %d > %d", ErrSizeLimit, m.Size, maxSize)
 	}
 	switch m.Version {
 	case 2:

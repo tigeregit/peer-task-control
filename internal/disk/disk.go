@@ -3,12 +3,21 @@ package disk
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/tigeregit/peer-task-control/internal/config"
 )
+
+func Free(path string) (int64, error) {
+	_, free, _, ok := volumeOf(path)
+	if !ok {
+		return 0, fmt.Errorf("cannot determine available disk space for %s", path)
+	}
+	return free, nil
+}
 
 // Volume is one filesystem that holds a ptc data root.
 type Volume struct {

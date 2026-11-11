@@ -13,6 +13,36 @@ import (
 
 var ErrBusy = errors.New("worktree is active")
 
+func Separate(a, b string) error {
+	a, err := canonical(a)
+	if err != nil {
+		return err
+	}
+	b, err = canonical(b)
+	if err != nil {
+		return err
+	}
+	if contains(a, b) || contains(b, a) {
+		return fmt.Errorf("storage paths overlap: %s and %s", a, b)
+	}
+	return nil
+}
+
+func Child(root, child string) error {
+	root, err := canonical(root)
+	if err != nil {
+		return err
+	}
+	child, err = canonical(child)
+	if err != nil {
+		return err
+	}
+	if root == child || !contains(root, child) {
+		return fmt.Errorf("workspace %s must be strictly inside %s", child, root)
+	}
+	return nil
+}
+
 const lockDirName = ".ptc-locks"
 
 type Guard struct {
@@ -119,6 +149,18 @@ func canonical(path string) (string, error) {
 		missing = append(missing, filepath.Base(path))
 		path = parent
 	}
+}
+
+func Same(a, b string) (bool, error) {
+	left, err := canonical(a)
+	if err != nil {
+		return false, err
+	}
+	right, err := canonical(b)
+	if err != nil {
+		return false, err
+	}
+	return left == right, nil
 }
 
 func contains(parent, path string) bool {

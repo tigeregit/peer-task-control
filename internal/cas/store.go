@@ -1,8 +1,10 @@
 package cas
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -155,16 +157,82 @@ func LinkOrCopy(src, dest string) error {
 }
 
 func CopyTree(src, dest string) error {
+	return copyTree(context.Background(), src, dest, LinkOrCopy)
+}
+
+// CopyPrivate never shares an inode with src. Workspaces may modify inputs.
+func CopyPrivate(src, dest string) error {
+	return CopyPrivateContext(context.Background(), src, dest)
+}
+
+func CopyPrivateContext(ctx context.Context, src, dest string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return copyTree(ctx, src, dest, func(src, dst string) error {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		in, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		st, err := in.Stat()
+		if err != nil {
+			return err
+		}
+		if old, err := os.Stat(dst); err == nil {
+			if os.SameFile(st, old) {
+				return fmt.Errorf("source and destination share a file: %s", dst)
+			}
+			if err := os.Remove(dst); err != nil {
+				return err
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		out, err := os.Create(dst)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(out, contextReader{ctx: ctx, Reader: in})
+		return errors.Join(err, out.Chmod(st.Mode().Perm()), out.Close())
+	})
+}
+
+type contextReader struct {
+	io.Reader
+	ctx context.Context
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.Reader.Read(p)
+}
+
+func copyTree(ctx context.Context, src, dest string, file func(string, string) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 	if !info.IsDir() {
-		return LinkOrCopy(src, dest)
+		return file(src, dest)
 	}
 	return filepath.Walk(src, func(p string, fi os.FileInfo, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err != nil {
 			return err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("cannot materialize symlink %s", p)
 		}
 		rel, err := filepath.Rel(src, p)
 		if err != nil {
@@ -174,7 +242,7 @@ func CopyTree(src, dest string) error {
 		if fi.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
-		return LinkOrCopy(p, target)
+		return file(p, target)
 	})
 }
 

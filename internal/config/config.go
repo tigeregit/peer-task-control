@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tigeregit/peer-task-control/internal/quota"
+	"github.com/tigeregit/peer-task-control/internal/worktreeguard"
 	"gopkg.in/yaml.v3"
 )
 
@@ -42,7 +44,10 @@ type Storage struct {
 	// WorktreesDir is the root of per-run worktrees. Default: data_dir/worktrees.
 	WorktreesDir string `yaml:"worktrees_dir,omitempty"`
 	// RunsDir holds run records and the persistent job queue. Default: data_dir/runs.
-	RunsDir string `yaml:"runs_dir,omitempty"`
+	RunsDir        string      `yaml:"runs_dir,omitempty"`
+	SizeLimit      quota.Bytes `yaml:"size_limit,omitempty"`
+	DeleteSize     quota.Bytes `yaml:"delete_size,omitempty"`
+	WorkspaceLimit quota.Bytes `yaml:"workspace_limit,omitempty"`
 }
 
 // Exec controls how this node runs dispatched jobs.
@@ -210,10 +215,34 @@ func (c *Config) Normalize() error {
 		c.PSKBytes = b
 	}
 	c.ApplyEnv()
+	if c.Storage.SizeLimit == 0 {
+		c.Storage.SizeLimit = quota.Bytes(40 * quota.GB)
+	}
+	if c.Storage.DeleteSize == 0 {
+		c.Storage.DeleteSize = c.Storage.SizeLimit / 2
+	}
+	if c.Storage.SizeLimit < 0 || c.Storage.DeleteSize <= 0 ||
+		c.Storage.DeleteSize > c.Storage.SizeLimit || c.Storage.WorkspaceLimit < 0 {
+		return fmt.Errorf("storage: require 0 < delete_size <= size_limit and workspace_limit >= 0")
+	}
+	if err := c.ValidateStorage(); err != nil {
+		return err
+	}
 	if c.Exec.Concurrency <= 0 {
 		c.Exec.Concurrency = 1
 	}
 	c.ResolveScanHosts()
+	return nil
+}
+
+func (c *Config) ValidateStorage() error {
+	for _, path := range []string{c.PackagesDir(), c.CASDir(), filepath.Join(c.SeedsDir(), "blocks"), c.FetchTmpDir(), c.RunsDir(),
+		filepath.Join(c.SeedsDir(), ".retention"), filepath.Join(c.SeedsDir(), ".retention-lock"),
+		filepath.Join(c.SeedsDir(), ".reservations"), filepath.Join(c.SeedsDir(), ".quota-lock")} {
+		if err := worktreeguard.Separate(c.WorktreesDir(), path); err != nil {
+			return fmt.Errorf("workspace and seeding/record directories must be separate: %w", err)
+		}
+	}
 	return nil
 }
 

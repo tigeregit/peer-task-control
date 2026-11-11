@@ -1,7 +1,9 @@
 package resource
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/tigeregit/peer-task-control/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/retention"
 )
 
 // SeedDirName is the packages/ subdirectory used for a published prepare seed.
@@ -41,7 +44,7 @@ func SeedDirName(name string) string {
 const DirectoryUnitMinFiles = 100
 
 // PublishTree records src as a named tree seed under dataDir/packages/seed-<name>.
-// Files are hard-linked when the filesystem allows, so a second copy is not required.
+// The stored files are private copies, isolated from writable source files.
 func PublishTree(dataDir, name, src string, created time.Time) (Seed, error) {
 	return PublishTreeTo(filepath.Join(dataDir, "packages"), name, src, created)
 }
@@ -49,29 +52,73 @@ func PublishTree(dataDir, name, src string, created time.Time) (Seed, error) {
 // PublishTreeTo is PublishTree with an explicit packages directory
 // (the directory that contains seed-* folders).
 func PublishTreeTo(packagesDir, name, src string, created time.Time) (Seed, error) {
+	return PublishTreeContext(context.Background(), packagesDir, name, src, created)
+}
+
+func PublishTreeContext(ctx context.Context, packagesDir, name, src string, created time.Time) (result Seed, retErr error) {
 	if packagesDir == "" {
 		return Seed{}, fmt.Errorf("packages dir is empty")
 	}
+	guard, err := retention.Acquire(ctx, filepath.Dir(packagesDir))
+	if err != nil {
+		return Seed{}, fmt.Errorf("seed store is being maintained: %w", err)
+	}
+	defer func() { retErr = errors.Join(retErr, guard.Close()) }()
 	src = filepath.Clean(src)
 	info, err := os.Stat(src)
 	if err != nil {
 		return Seed{}, err
 	}
 	pkg := filepath.Join(packagesDir, SeedDirName(name))
+	if old, ok := loadPackage(pkg); ok {
+		if old.Pin {
+			return Seed{}, fmt.Errorf("seed %s is pinned; cannot replace it", name)
+		}
+		held, err := retention.Held(filepath.Dir(packagesDir), old.Digest)
+		if err != nil {
+			return Seed{}, err
+		}
+		if held {
+			return Seed{}, fmt.Errorf("seed %s is retained for another node; cannot replace it", name)
+		}
+	} else if _, err := os.Stat(pkg); err == nil {
+		records, err := retention.Records(filepath.Dir(packagesDir), false)
+		if err != nil {
+			return Seed{}, err
+		}
+		for _, record := range records {
+			if !record.Released {
+				return Seed{}, fmt.Errorf("cannot replace an unindexed seed while replica promises are active")
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return Seed{}, err
+	}
 	if err := os.RemoveAll(pkg); err != nil {
 		return Seed{}, err
 	}
 	if err := os.MkdirAll(pkg, 0o755); err != nil {
 		return Seed{}, err
 	}
-	if info.IsDir() {
-		if err := cas.CopyTree(src, pkg); err != nil {
-			return Seed{}, fmt.Errorf("link seed %s into %s: %w", name, pkg, err)
+	committed := false
+	defer func() {
+		if !committed {
+			retErr = errors.Join(retErr, os.RemoveAll(pkg))
 		}
-	} else if err := cas.LinkOrCopy(src, filepath.Join(pkg, info.Name())); err != nil {
+	}()
+	if info.IsDir() {
+		if err := cas.CopyPrivateContext(ctx, src, pkg); err != nil {
+			return Seed{}, fmt.Errorf("copy seed %s into %s: %w", name, pkg, err)
+		}
+	} else if err := cas.CopyPrivateContext(ctx, src, filepath.Join(pkg, info.Name())); err != nil {
 		return Seed{}, err
 	}
-	return CommitTree(pkg, name, created, CommitOpts{Format: "unixfs"})
+	if err := ctx.Err(); err != nil {
+		return Seed{}, err
+	}
+	result, retErr = CommitTree(pkg, name, created, CommitOpts{Format: "unixfs"})
+	committed = retErr == nil
+	return result, retErr
 }
 
 // CommitOpts optional fields written into a directory-unit tree manifest.
@@ -158,6 +205,11 @@ func IsPinned(dir string) bool {
 
 // SetPin updates the pin flag on an existing package manifest.
 func SetPin(dir string, pin bool) error {
+	guard, err := retention.Lock(filepath.Dir(filepath.Dir(dir)))
+	if err != nil {
+		return err
+	}
+	defer guard.Close()
 	return updateManifest(dir, func(m *packageManifest) { m.Pin = pin })
 }
 
