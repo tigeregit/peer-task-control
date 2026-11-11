@@ -2,15 +2,14 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 
 	"github.com/spf13/cobra"
 
 	_ "embed"
 	"github.com/tigeregit/peer-task-control/internal/version"
 )
+
+//go:generate cp ../../SKILL.md skill.txt
 
 //go:embed skill.txt
 var skillFallback string
@@ -36,27 +35,14 @@ func skillCmd() *cobra.Command {
 	return cmd
 }
 
+// skillText returns the skill text embedded at build time. The embedded copy
+// is the authority because it is bound to this binary's version; a SKILL.md on
+// disk may belong to another version. cmd/ptc/skill.txt is generated from the
+// repository SKILL.md by `go generate ./cmd/ptc` and TestSkillInSync fails when
+// they drift.
 func skillText() (string, error) {
-	// Prefer the SKILL.md shipped next to the source or the executable.
-	candidates := []string{}
-	if _, file, _, ok := runtime.Caller(0); ok {
-		candidates = append(candidates, filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "SKILL.md")))
+	if skillFallback == "" {
+		return "", fmt.Errorf("binary was built without embedded skill text")
 	}
-	if exe, err := os.Executable(); err == nil {
-		dir := filepath.Dir(exe)
-		candidates = append(candidates, filepath.Join(dir, "SKILL.md"), filepath.Join(dir, "..", "SKILL.md"))
-	}
-	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(wd, "SKILL.md"))
-	}
-	for _, p := range candidates {
-		b, err := os.ReadFile(p)
-		if err == nil && len(b) > 0 {
-			return string(b), nil
-		}
-	}
-	if skillFallback != "" {
-		return skillFallback, nil
-	}
-	return "", fmt.Errorf("SKILL.md not found next to the binary")
+	return skillFallback, nil
 }

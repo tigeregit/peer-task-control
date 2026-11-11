@@ -20,6 +20,20 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Check version, skill and tests
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          src=$(sed -n 's/^const Version = "\(.*\)"/\1/p' internal/version/version.go)
+          if [ "$src" != "$ver" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match internal/version Version=${src}" >&2
+            exit 1
+          fi
+          cmp SKILL.md cmd/ptc/skill.txt
+          test -f "docs/release-notes/${GITHUB_REF_NAME}.md"
+          go vet ./...
+          go test ./...
+
       - name: Build binaries
         run: |
           set -euo pipefail
