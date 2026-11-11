@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -35,10 +36,8 @@ jobs:
           build windows amd64 ptc-windows-amd64.exe
           build darwin amd64 ptc-darwin-amd64
           build darwin arm64 ptc-darwin-arm64
-          cp cmd/ptc/skill.txt "dist/SKILL-${ver}.txt"
-          if [ -f SKILL.md ]; then
-            cp SKILL.md "dist/SKILL-${ver}.md"
-          fi
+          cp SKILL.md "dist/SKILL-${ver}.md"
+          tar -C cmd/ptc -czf "dist/skill-pack-${ver}.tar.gz" skill
           (cd dist && sha256sum * > SHA256SUMS)
           echo "Built ${ver}:"
           ls -l dist
@@ -52,3 +51,71 @@ jobs:
           body_path: docs/release-notes/${{ github.ref_name }}.md
           files: dist/*
           fail_on_unmatched_files: true
+
+  images:
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/tigeregit/peer-task-control
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+
+      - name: Build and push ptc image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+
+      - name: Docker metadata (CUDA)
+        id: meta_cuda
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/tigeregit/peer-task-control-cuda
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+
+      - name: Build and push CUDA image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.cuda
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta_cuda.outputs.tags }}
+          labels: ${{ steps.meta_cuda.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
