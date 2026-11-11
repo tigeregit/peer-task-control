@@ -33,6 +33,6 @@ records the install. Refuse mesh updates with `ptc policy update off`.
 After `ptc update` or `ptc install`, refresh the installed skill with
 `ptc skill sync` (local and mesh updates also do this). Prefer the copy at
 `~/.agents/skills/peer-task-control/` (Windows: `%USERPROFILE%\.agents\skills\peer-task-control\`).
-If that directory is missing, `ptc skill read [references/...]` prints the
+If that directory is missing or stale, run `ptc skill sync` to write the
 pack bundled in the new binary. Do not keep using a leftover repository-root
 or next-to-binary `SKILL.md`. See [docs/CLI.md](docs/CLI.md).

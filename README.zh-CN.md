@@ -51,7 +51,7 @@ ptc policy show
 ptc skill sync
 ```
 
-先起 daemon，再等目录出现。同网段靠 mDNS 和端口探测；跨网段由 `services.relay: true` 的网关扫描受信任网段并推送目录。Agent 应优先使用已安装的 skill 目录 `~/.agents/skills/peer-task-control/`（Windows：`%USERPROFILE%\.agents\skills\peer-task-control\`），可通过 `ptc skill sync` 或一次成功的 `ptc update` / `ptc install` 刷新。若该副本不存在，可用 `ptc skill read [references/...]` 打印当前二进制内嵌的 pack。不要把仓库根目录或可执行文件旁残留的 `SKILL.md` 当作权威来源。
+先起 daemon，再等目录出现。同网段靠 mDNS 和端口探测；跨网段由 `services.relay: true` 的网关扫描受信任网段并推送目录。Agent 应优先使用已安装的 skill 目录 `~/.agents/skills/peer-task-control/`（Windows：`%USERPROFILE%\.agents\skills\peer-task-control\`），可通过 `ptc skill sync` 或一次成功的 `ptc update` / `ptc install` 刷新。不要把仓库根目录或可执行文件旁残留的 `SKILL.md` 当作权威来源。
 
 ## 架构
 
@@ -72,8 +72,6 @@ ptc skill sync
 | `ptc peers` | 列出已知节点及执行 / 文件 / 中转服务 |
 | `ptc policy` | 查看或设置本机白名单、黑名单、功能开关以及是否接受网格升级 |
 | `ptc skill sync` | 将内嵌 skill 写入 `~/.agents/skills/peer-task-control/` |
-| `ptc skill list` | 列出内嵌 skill、安装状态和参考文件 |
-| `ptc skill read [path]` | 打印内嵌 skill 文件（`print` 是别名） |
 | `ptc version` | 打印版本 |
 | `ptc install --ssh HOST` | 经 SSH 安装经过 SHA256 校验的官方 Release 二进制 |
 | `ptc update [--ssh HOST\|--mesh]` | 更新本机或一个 SSH 目标，或向已记录安装的节点滚动升级 |
@@ -102,4 +100,4 @@ ptc skill sync
 
 ## 贡献
 
-贡献与排障请看 [docs/CONTRIBUTING.md](docs/zh/CONTRIBUTING.md)。提交前请运行 `go test ./...`。Agent 应使用与当前二进制版本匹配的已安装 skill 目录，或把同版本二进制的 `ptc skill read` 作为后备。
+贡献与排障请看 [docs/CONTRIBUTING.md](docs/zh/CONTRIBUTING.md)。提交前请运行 `go test ./...`。Agent 应使用与当前二进制版本匹配的已安装 skill 目录。

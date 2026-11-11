@@ -212,8 +212,6 @@ func TestRequiredRulesPresent(t *testing.T) {
 		"metadata.version",
 		"~/.agents/skills/peer-task-control/",
 		"ptc skill sync",
-		"ptc skill read",
-		"ptc skill list",
 		"never be an exec target",
 		"never ask the user for neighbor IPs",
 		"read-only",

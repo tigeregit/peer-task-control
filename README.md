@@ -51,7 +51,7 @@ ptc policy show
 ptc skill sync
 ```
 
-Start the daemon first, then wait for the catalog to appear. Same-segment discovery uses mDNS and port probes. Across segments, a gateway with `services.relay: true` scans the trusted CIDRs and pushes the catalog. Agents should prefer the installed skill at `~/.agents/skills/peer-task-control/` (Windows: `%USERPROFILE%\.agents\skills\peer-task-control\`), refreshed by `ptc skill sync` or a successful `ptc update` / `ptc install`. If that copy is missing, `ptc skill read [references/...]` prints the pack bundled in this binary. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
+Start the daemon first, then wait for the catalog to appear. Same-segment discovery uses mDNS and port probes. Across segments, a gateway with `services.relay: true` scans the trusted CIDRs and pushes the catalog. Agents should prefer the installed skill at `~/.agents/skills/peer-task-control/` (Windows: `%USERPROFILE%\.agents\skills\peer-task-control\`), refreshed by `ptc skill sync` or a successful `ptc update` / `ptc install`. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
 
 ## Architecture
 
@@ -72,8 +72,6 @@ Full flags, defaults, output formats, and the local API are in [docs/CLI.md](doc
 | `ptc peers` | List known nodes and their exec / files / relay services |
 | `ptc policy` | Show or set the local allow list, deny list, feature switches, and whether mesh updates are accepted |
 | `ptc skill sync` | Write the bundled skill to `~/.agents/skills/peer-task-control/` |
-| `ptc skill list` | List the bundled skill, install status, and reference files |
-| `ptc skill read [path]` | Print a bundled skill file (`print` is an alias) |
 | `ptc version` | Print the version |
 | `ptc install --ssh HOST` | Install a SHA256-verified official Release binary over SSH |
 | `ptc update [--ssh HOST\|--mesh]` | Update the local machine or one SSH target, or roll an update to recorded installs |
@@ -102,4 +100,4 @@ The protocol and daemon are **not Windows-only**. The project is written in Go, 
 
 ## Contributing
 
-See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for contributing and troubleshooting. Run `go test ./...` before you send a change. Agents should use the installed skill directory that matches this binary version, or `ptc skill read` from the same binary as a fallback.
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for contributing and troubleshooting. Run `go test ./...` before you send a change. Agents should use the installed skill directory that matches this binary version.

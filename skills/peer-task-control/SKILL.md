@@ -15,11 +15,8 @@ Prefer the installed copy at `~/.agents/skills/peer-task-control/`
 `ptc skill sync`, and a successful `ptc update` or `ptc install`, refresh
 that directory from the pack bundled in this binary. Check
 `metadata.version` against `ptc version`. Load files under `references/`
-only as needed.
-
-If the on-disk skill is missing, you may use `ptc skill read` or
-`ptc skill read references/<topic>.md` to print the copy bundled in this
-binary. Do not treat a leftover repository-root or next-to-binary
+only as needed. If the on-disk skill is missing or stale, run
+`ptc skill sync`. Do not treat a leftover repository-root or next-to-binary
 `SKILL.md` as authoritative.
 
 You help the user send programs (often CUDA) and test data to the right
@@ -41,7 +38,7 @@ Do not invent commands that are not listed here or there.
 ## Core workflow
 
 1. `ptc version` -- confirm it matches `metadata.version` in the installed
-   skill (or in `ptc skill read` if that copy is not installed yet).
+   skill. If that copy is missing or stale, run `ptc skill sync` first.
 2. Ensure `ptc daemon --config config.yaml` is running on this machine
    (`trusted_cidrs` only; never ask the user for neighbor IPs).
 3. `ptc peers --json` (or `ptc peers show <name> --json`) -- wait until the
@@ -85,7 +82,7 @@ Details: `references/submit.md` and `references/resources.md`.
 
 Agents should pass `--json` on `peers`, `peers show`, `tasks`, `tasks show`,
 `resources`, `resources show`, `resources pull`, `submit`, `queue`, `cancel`,
-`clean`, `update --mesh`, and `skill list`. Do not parse human tables.
+`clean`, and `update --mesh`. Do not parse human tables.
 
 ## References
 
@@ -103,9 +100,6 @@ Agents should pass `--json` on `peers`, `peers show`, `tasks`, `tasks show`,
 ```text
 ptc version
 ptc skill sync
-ptc skill list [--json]
-ptc skill read [path]
-ptc skill print [path]
 ptc install --ssh HOST [--version VERSION] [--path PATH]
 ptc update [--ssh HOST] [--version VERSION] [--path PATH] [--mesh] [--no-restart]
 ptc daemon --config config.yaml
@@ -121,8 +115,6 @@ ptc resources / resources show|get|pull <digest> [--json]
 ptc clean outputs|runs|resource|worktrees [--match RE] [--dry-run] [--yes] [--force] [--json]
 ptc webui
 ```
-
-`ptc skill print` is an alias of `ptc skill read`.
 
 ## Not provided (do not call)
 

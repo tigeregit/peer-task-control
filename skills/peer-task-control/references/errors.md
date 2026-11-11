@@ -1,8 +1,7 @@
 # Error recovery
 
 1. Version mismatch → install a matching binary; run `ptc skill sync` and
-   reread the installed skill (or `ptc skill read` / the `references/` file
-   you need) from that binary.
+   reread the installed skill (or the `references/` file you need).
 2. `daemon lock not found` → start `ptc daemon --config config.yaml` with
    the same `--data-dir`.
 3. Target not in the catalog → wait for a scan/relay push; check

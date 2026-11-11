@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -19,7 +18,7 @@ func skillCmd() *cobra.Command {
 		PersistentPreRun: func(cmd *cobra.Command, args []string) { maybeWarnStaleSkill(cmd) },
 		SilenceUsage:     true,
 	}
-	cmd.AddCommand(skillSyncCmd(), skillListCmd(), skillReadCmd())
+	cmd.AddCommand(skillSyncCmd())
 	return cmd
 }
 
@@ -38,88 +37,6 @@ func skillSyncCmd() *cobra.Command {
 			return nil
 		},
 	}
-}
-
-func skillListCmd() *cobra.Command {
-	var asJSON bool
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List the bundled skill, install status, and reference files",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			st, err := skills.InstallStatus(version.Version)
-			if err != nil {
-				return err
-			}
-			if asJSON {
-				payload := struct {
-					Name    string        `json:"name"`
-					Version string        `json:"version"`
-					Install skills.Status `json:"install"`
-					Files   []skills.File `json:"files"`
-				}{Name: skills.Name, Version: version.Version, Install: st, Files: skills.Files}
-				enc := json.NewEncoder(cmd.OutOrStdout())
-				enc.SetIndent("", "  ")
-				return enc.Encode(payload)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s  bundled %s\n", skills.Name, version.Version)
-			switch {
-			case !st.Present:
-				fmt.Fprintf(cmd.OutOrStdout(), "  install  (missing)  run ptc skill sync\n")
-			case st.Stale:
-				installed := st.Version
-				if installed == "" {
-					installed = "unknown"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  install  %s  %s  stale (binary is %s)\n", st.Path, installed, version.Version)
-			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "  install  %s  %s  current\n", st.Path, st.Version)
-			}
-			for _, f := range skills.Files {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %-28s %s\n", f.Path, f.Summary)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&asJSON, "json", false, "print as JSON")
-	return cmd
-}
-
-func skillReadCmd() *cobra.Command {
-	names := skillPathNames()
-	return &cobra.Command{
-		Use:       "read [path]",
-		Aliases:   []string{"print"},
-		Short:     "Print a file from the skill pack embedded in this binary",
-		Long:      "Print SKILL.md, or a path such as references/storage.md, from the pack compiled into this binary. This is a fallback when the on-disk skill at ~/.agents/skills/peer-task-control is missing. Prefer that installed copy, and refresh it with ptc skill sync. print is an alias of read. Guidance is written to stderr; stdout is the file contents. Unknown paths fail; use ptc skill list.",
-		Args:      cobra.MaximumNArgs(1),
-		ValidArgs: names,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			name := "SKILL.md"
-			if len(args) == 1 {
-				name = args[0]
-			}
-			data, err := skills.Read(name, version.Version)
-			if err != nil {
-				return err
-			}
-			text := string(data)
-			fmt.Fprint(cmd.OutOrStdout(), text)
-			if len(text) == 0 || text[len(text)-1] != '\n' {
-				fmt.Fprintln(cmd.OutOrStdout())
-			}
-			fmt.Fprintln(cmd.ErrOrStderr(), "Prefer the installed skill at ~/.agents/skills/peer-task-control when present; ptc skill sync refreshes it.")
-			return nil
-		},
-	}
-}
-
-func skillPathNames() []string {
-	names := make([]string, 0, len(skills.Files))
-	for _, f := range skills.Files {
-		names = append(names, f.Path)
-	}
-	return names
 }
 
 func maybeWarnStaleSkill(cmd *cobra.Command) {

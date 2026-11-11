@@ -40,7 +40,7 @@ Prefer the templates in `.github/ISSUE_TEMPLATE/`.
 
 3. In the description, write: what behavior changed, how to verify it, and whether the skill pack or example configs need updates.
 4. Protocol or discovery changes must update `docs/DESIGN.md` and `docs/zh/DESIGN.md`. If they conflict with the design Page, update the Page first, then merge.
-5. If you change the agent skill: edit `skills/peer-task-control/` (the folder name must match frontmatter `name: peer-task-control`). Put long material in `references/` and keep `SKILL.md` short. The pack is English only and is embedded from that tree. `ptc skill sync` and a successful `ptc update` / `ptc install` write it to `~/.agents/skills/peer-task-control/`. Set `metadata.version` to the same value as `internal/version/version.go`; release builds stamp the running binary version at sync/read time. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
+5. If you change the agent skill: edit `skills/peer-task-control/` (the folder name must match frontmatter `name: peer-task-control`). Put long material in `references/` and keep `SKILL.md` short. The pack is English only and is embedded from that tree. `ptc skill sync` and a successful `ptc update` / `ptc install` write it to `~/.agents/skills/peer-task-control/`. Set `metadata.version` to the same value as `internal/version/version.go`; release builds stamp the running binary version at sync time. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
 
 Default Bitswap tests cover index pagination, level carry, malformed indexes, and interoperability with standard Boxo. When you change the large-resource export path, also run the streaming test above the old limit (3GiB) to verify SHA256 and persistent-cache reopen after the source goes offline:
 
@@ -54,7 +54,7 @@ This test uses repeated data to keep disk use down. It verifies logical resource
 
 ## Releases
 
-1. The development version is in `internal/version/version.go`. Release builds write the exact version with `-ldflags -X github.com/tigeregit/peer-task-control/internal/version.Version=<tag without v>`. The canonical skill pack is `skills/peer-task-control/`; `metadata.version` in the source index should match the development version, and sync/read stamp the running binary version. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
+1. The development version is in `internal/version/version.go`. Release builds write the exact version with `-ldflags -X github.com/tigeregit/peer-task-control/internal/version.Version=<tag without v>`. The canonical skill pack is `skills/peer-task-control/`; `metadata.version` in the source index should match the development version, and sync stamps the running binary version. Do not treat a leftover repository-root or next-to-binary `SKILL.md` as authoritative.
 2. Write release notes in `docs/release-notes/v<version>.md` (and the Chinese counterpart under `docs/zh/release-notes/`). The English file name must match the tag you are about to push.
 3. After merging to `main`, tag and push: `git tag v0.2.0-p2 && git push origin v0.2.0-p2`.
 4. The GitHub Actions workflow `.github/workflows/release.yml` cross-compiles binaries, packs the skill, generates `SHA256SUMS`, creates the Release, and tries to push images to GHCR. A tag name that contains `-` (for example `-p2` or `-rc`) is marked as a pre-release and does not receive the `latest` image tag.
