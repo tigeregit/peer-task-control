@@ -57,4 +57,4 @@ jobs:
 
 ## 状态
 
-本机已可用 `ptc submit` 执行 Package result：收集路径、计算内容寻址种子、写入 `packages/<id>/manifest.json` 和任务摘要。结果包按摘要发布后，其他节点可通过现有资源下载协议拉取（不是 bitswap）。
+本机与网格执行均可用 `ptc submit` 执行 Package result：收集路径、计算内容寻址种子、写入 `packages/<id>/manifest.json` 和任务摘要。结果包按摘要发布后，其他节点优先通过标准 Bitswap 分块拉取；旧节点按协议协商回退原资源协议。纯做种 action 不执行 Package result，也不生成结果包。

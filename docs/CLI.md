@@ -48,7 +48,9 @@ ptc <命令> --help
 | `identity.key` | 节点 libp2p 身份密钥，首次启动生成（仍在 `data_dir`）。 |
 | `daemon.lock` | daemon 启动时写入，正常退出时删除。含 `pid`、`api`、`peer_id`、`name`。 |
 | `cas/`、`packages/` | 种子与结果包（在 `seeds_dir` 下）。与工作树分离；删除工作树不会删除这里的数据。 |
+| `blocks/` | `seeds_dir` 下持久化的 Bitswap raw SHA256 分块缓存，计入种子磁盘用量；尚无缓存 GC。 |
 | `worktrees/` | 每次运行物化出的工作空间。成功后按 Package result 清理；也可用 `ptc clean worktrees`。 |
+| `.fetch/` | 种子存储中的下载 / bundle 暂存，不在工作树盘；纯做种任务也可使用。 |
 | `runs/` | 运行记录 JSON 与 `runs/queue/` 中的持久作业队列。 |
 
 ## 退出码
@@ -70,6 +72,34 @@ ptc <命令> --help
 始终打印编译进二进制的内嵌文本，不再读取当前目录或旧安装残留的 `SKILL.md`，避免更新后 usage 与实际二进制能力不一致。仓库 `SKILL.md` 与 `cmd/ptc/skill.txt` 保持一致。
 
 不需要正在运行的 daemon。
+
+### `ptc install --ssh HOST` / `ptc update [--ssh HOST]`
+
+从官方 `tigeregit/peer-task-control` Release 下载对应平台的二进制及 `SHA256SUMS`，校验后替换，失败时回滚。无需 daemon；**只替换二进制，不安装服务、不启动或重启 daemon、不协调网格升级**。
+
+```text
+ptc install --ssh user@linux-node --version 0.2.0-p2
+ptc install --ssh user@windows-node --version 0.2.0-p2 --path C:\Tools\ptc.exe
+ptc update --ssh user@windows-node --version 0.2.0-p2 --path C:\Tools\ptc.exe
+ptc update --version 0.2.0-p2
+# Windows: run a different ptc.exe to update a non-running installed copy
+ptc update --version 0.2.0-p2 --path C:\Tools\ptc.exe
+```
+
+| 参数 | 默认值 | 作用 |
+| --- | --- | --- |
+| `--ssh HOST` | 空 | install 必需；update 省略时更新本机。接受 OpenSSH alias、主机名、地址或 `user@host`。 |
+| `--version` | `latest` | 最新稳定 Release；预发布版须显式指定标签版本。 |
+| `--path` | 见下文 | 本机目标，或 SSH 目标上的绝对文件路径。 |
+| `--identity` | OpenSSH 默认 | SSH 私钥文件；加密私钥建议通过 ssh-agent 使用。 |
+| `--known-hosts` | OpenSSH 默认 | 替代 known_hosts 文件；不会关闭校验。 |
+| `--port` / `-p` | `22` | SSH 端口。 |
+
+SSH 自动探测 Linux amd64/arm64 或原生 Windows amd64；macOS SSH、Windows ARM64、UNC 路径不支持。Linux 默认安装到 `$HOME/.local/bin/ptc`，Windows 为 `%LOCALAPPDATA%\Programs\ptc\ptc.exe`。Windows 通过本机 OpenSSH `scp` 上传二进制和替换脚本，再以短编码 PowerShell 命令启动，避免默认 cmd.exe 的命令长度限制及 Windows SSH 二进制 stdin 问题；因此发起端还须有 `scp`，目标须提供 SFTP。检查 SHA256 和版本，更新时保留原目标 ACL，清理临时部署目录；目标被运行中的进程锁定时会报错。
+
+SSH 必须已配置非交互认证，且 known_hosts 已信任目标；使用 `BatchMode=yes` 和 `StrictHostKeyChecking=yes`，不接受密码提示或未知主机密钥。下载发生在发起命令的本机，使用正常 HTTPS 代理环境。
+
+本机 update 支持 Linux/macOS 自更新。Windows 不能覆盖当前运行的 exe，须从另一个副本执行并用 `--path` 指定未运行的已安装 PTC。显式本机目标必须存在且通过 `ptc version` 探测。SSH 专用的 identity/known-hosts/port 参数不能用于本机模式。
 
 ### `ptc daemon`
 
@@ -136,7 +166,7 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 {
   "name": "worker-a",
   "peer_id": "<libp2p peer id>",
-  "version": "0.2.0-p2",
+  "version": "0.3.0-dev",
   "listen": ["<multiaddr>", "..."],
   "peers": [
     {
@@ -232,7 +262,9 @@ ptc resources get sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d5
 | `--order` | `asc` 或 `desc`（`size` / `replicas` 默认降序） |
 | `--list-files` | 仅 `show`：列出目录树里的每一条路径。默认在文件数超过 100 时只显示数量，与看板预览规则一致 |
 
-`--json` 适用于列表和 `show`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。下载走内容接口，不是 bitswap；网格按 CID 取种仍未实现。
+`--json` 适用于列表和 `show`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。CLI / HTTP 仍是内容接口，节点之间优先使用标准 Boxo Bitswap 传输 256KiB 分块：`/ptc/resource-blocks/1.0.0` 仅发现传输 manifest 的 CID，payload 使用标准 Bitswap。旧节点不支持该发现协议时才回退原 tar/blob 协议，校验错误不会静默回退。按跳数依次尝试副本，接收完整并校验 sha256 / DirDigest 后再交付内容。
+
+输入仍是 PTC sha256 摘要，不支持直接使用 CID / dataset / UnixFS 输入。单资源传输最多 10,000 个 256KiB 分块，约 2.44GiB（目录 tar 开销也计入）；单块超时 20 秒、总超时 30 分钟。缓存位于种子盘 `blocks/`，下载与校验暂存位于 `.fetch/`，不构建工作树。尚无分块缓存 GC，`ptc clean resource` 不会回收该缓存；种子磁盘统计包含缓存和暂存。关闭 files 或更新名单后，资源发现与标准 Bitswap 的请求 / 发包都会重新检查策略。
 
 ### `ptc tasks`
 
@@ -329,7 +361,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | `{"status":"ok"}` |
-| `GET` | `/api/v1/version` | `{"version":"0.2.0-p2"}` |
+| `GET` | `/api/v1/version` | `{"version":"0.3.0-dev"}`（Release 返回实际标签版本） |
 | `GET` | `/api/v1/status` | 与 `ptc peers --json` 相同的状态对象 |
 | `GET` | `/api/v1/peers` | `{"peers":[...]}`，不含本机 `name` / `version` 包装 |
 | `GET` | `/api/v1/policy` | 当前策略 |
@@ -356,7 +388,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 
 ### `ptc submit`
 
-执行一份 Actions 风格的工作流：第一个步骤必须是 Prepare，最后一个必须是 Package result，中间是 `run` 步骤。
+执行一份 Actions 风格的工作流：普通任务的第一个步骤必须是 Prepare，最后一个必须是 Package result，中间是 `run` 步骤。另一种合法任务是仅包含一个 `ptc/seed@v0` action 的纯做种工作流，见下方。
 
 不加 `--target` 时在**本机**执行。加上 `--target <节点名|peer id>`（或 `auto`）时，本机 daemon 经 libp2p 协议 `/ptc/exec/1.0.0` 把作业下发到目标 exec 节点，目标走同一套 Prepare → steps → Package result，并把运行记录写入共享的 runs 协议，结果包按摘要发布，提交者可用 `ptc resources get` 取回。WebUI 不下发作业。
 
@@ -389,6 +421,18 @@ ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda
 | `--json` | false | 打印 JSON，供 agent 使用。 |
 
 成功后会在**执行节点**的 `runs/` 写入记录（含工作树快照与提交者），在其 `packages/` 发布结果种子。工作树在成功且未 `--keep-worktree` 时按清理规则删除，种子保留。超过 100 个文件的目录树种子按整个目录计算一个 digest。
+
+#### 纯做种（不创建 workspace、不执行）
+
+`ptc/seed@v0` 的 `with.file` 指向 `apiVersion: ptc/v0`、`kind: Seed` 的资源集合 YAML。该 action 必须是唯一 step；不允许 run / if，也不需要 Prepare / Package result。按 `seeds` 中的 `digest` 或 `local.src` 获取并校验资源后，放入 CAS/packages，作为本机副本继续提供；不创建工作树、不检查 GPU、不运行命令、不产生结果包，任务记录的 `worktree` 为空。
+
+```text
+ptc submit --workflow testdata/seed/workflow.yaml --dry-run --json
+ptc submit --workflow testdata/seed/workflow.yaml --json
+ptc submit --workflow docs/templates/seed-workflow.example.yaml --target replica-node --json
+```
+
+完整 YAML、集合字段及 pin 限制见 [纯做种任务](PREPARE.md#纯做种任务)。模板中的摘要必须替换为 `ptc resources --json` 查到的值。远端需要 `files` 服务及对应策略允许，不要求 exec / NVIDIA；`--target auto` 此时挑选 files 节点。省略 target 时缺失资源由本机 daemon 拉取；仅使用本地资源则无需 daemon。队列 / follow / cancel 语义不变，但 `--fetch-result` 没有结果可取，`--force` / `--keep-worktree` 不改变纯做种行为。向不同节点分别提交可以增加副本；任务完成后副本保留，但不会后台持续检查副本数。
 
 ### `ptc queue`
 
@@ -443,7 +487,5 @@ ptc clean runs --match 'sample-local' --yes
 - `ptc status`
 - `ptc logs`
 - `ptc artifacts`
-- `ptc install --ssh`
-- `ptc update`
 
 设计草案：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。离线摘要见 [DESIGN.md](DESIGN.md)。

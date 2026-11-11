@@ -16,7 +16,9 @@ You help the user send programs (often CUDA) and test data to the right machine 
 
 - Start or talk to a `ptc daemon`, list peers, or inspect policy.
 - Run or dispatch a Prepare / run / Package result workflow with `ptc submit`.
+- Retain resource replicas without a workspace or execution using a single `ptc/seed@v0` action.
 - Watch, cancel, or clean jobs; list seeds; read the live board.
+- Install a release over SSH or update a local/remote ptc binary.
 
 Details, flags, exit codes, and the HTTP API live in [docs/CLI.md](docs/CLI.md). Do not invent commands that are not listed here or there.
 
@@ -31,16 +33,60 @@ Details, flags, exit codes, and the HTTP API live in [docs/CLI.md](docs/CLI.md).
 
 WebUI (`ptc webui`) is **read-only**. Do not try to submit, cancel, change policy, or clean through the board. Those are CLI-only.
 
+## Seed-only tasks (supported action)
+
+Use a workflow whose only step is `uses: ptc/seed@v0`, with `with.file: seeds.yaml`.
+That file must have `apiVersion: ptc/v0`, `kind: Seed` and a nonempty `seeds` list
+of unique `name` plus `digest` (sha256) or `local.src`. `required` defaults true.
+Do not add workspace, layout, outputs, dest, entrypoint, run, if or Package result.
+This action fetches, verifies, retains and advertises the resources; it does not
+construct a worktree, check GPU capabilities, execute commands or package results.
+It still records a task and supports remote queue/follow/cancel. A remote target
+needs files enabled and policy permission, not exec or NVIDIA. `--target auto`
+selects a files node for this action; submit explicitly to different nodes to
+increase replica count. It is not a continuous replication controller.
+
+```text
+ptc submit --workflow testdata/seed/workflow.yaml --dry-run --json
+ptc submit --workflow testdata/seed/workflow.yaml --json
+ptc submit --workflow docs/templates/seed-workflow.example.yaml --target replica-node --json
+```
+
+The testdata example uses local sources and needs no daemon. The disaster-recovery
+template references `docs/templates/seeds.example.yaml`: replace its placeholder
+digests using `ptc resources --json` first. With no target, missing digest resources
+are fetched through the local daemon. Directory digests and raw blob hashes remain
+unchanged. Directory-only `data.pin_permanent: true` protects replicas from normal
+clean; blob pin is not supported. See [docs/PREPARE.md](docs/PREPARE.md) for YAML.
+
+## Install and update
+
+`ptc install --ssh HOST` installs an official release; `ptc update [--ssh HOST]`
+updates one local or remote binary. Use `--version VERSION` to select a prerelease;
+the default `latest` selects the latest stable release. Both verify SHA256SUMS
+and roll back failed replacements. SSH supports Linux amd64/arm64 and Windows
+amd64, requires noninteractive authentication and an already trusted host key,
+and never disables StrictHostKeyChecking. Optional SSH flags are `--identity`,
+`--known-hosts`, and `--port` / `-p`.
+Windows targets also require a local OpenSSH `scp` client and remote SFTP.
+
+Default remote paths are `$HOME/.local/bin/ptc` on Linux and
+`%LOCALAPPDATA%\Programs\ptc\ptc.exe` on Windows; override with `--path`.
+Local Linux/macOS can self-update. Windows must run a different ptc executable
+and use `update --path C:\Tools\ptc.exe` to replace an existing, non-running copy.
+These commands only replace a binary; they do not install services, restart
+daemons, or coordinate mesh upgrades. See [docs/CLI.md](docs/CLI.md).
+
 ## Decision rules: picking a target
 
 - `--target` omitted → run on this machine (local `ptc submit`).
 - `--target <name|peer-id>` → pre-check the catalog, then send `/ptc/exec/1.0.0`. The target enforces `prepare.yaml` (`require_nvidia` and `deny_non_exec` default **true**).
 - `--target auto` → pick an eligible exec node (NVIDIA + exec offered). Never resolves to a gateway for CUDA jobs.
 - **Never target a gateway** (or any node with `exec` off / no NVIDIA) for a `require_nvidia` job. Expect a clear refusal; do not retry the same target.
-- Content-addressed seeds already on the mesh are **not** shipped in the bundle. The target pulls from the closest holder (existing resource tar path) and verifies DirDigest / sha256. A seed that exists only as a local path on the submitter is published there first.
+- Content-addressed seeds already on the mesh are **not** shipped in the bundle. The target tries holders by hop count using standard Boxo Bitswap blocks and verifies DirDigest / sha256 before delivering content. Legacy peers negotiate the old tar/blob path. A seed that exists only as a local path on the submitter is published there first.
 - One node runs `exec.concurrency` jobs at a time (default 1); later jobs **queue** (FIFO). They show as `queued` / `running` / `succeeded` / `failed` / `cancelled` in `ptc tasks`, `ptc queue`, and the WebUI.
 - Follow disconnect does **not** cancel the job. Cancel explicitly with `ptc cancel <run-id>`.
-- There is no bitswap/filestore/pin protocol yet (P1). Do not claim it exists. Digests are whole-tree or whole-blob downloads.
+- Bitswap uses 256-KiB chunks and a PTC raw-CID transport manifest, not UnixFS. Inputs remain sha256 digests; direct CID/dataset resolution is unsupported. Single-resource transport is limited to 10,000 chunks (about 2.44 GiB including tree tar overhead), with 20 seconds per block and 30 minutes overall. Do not claim TB-scale single resources work. The persistent `seeds_dir/blocks` cache has no GC; `ptc clean resource` does not reclaim it. Cache/staging count toward seed disk usage. Files policy is rechecked on block requests and sends, including existing connections.
 
 ## Machine-readable output
 
@@ -62,6 +108,8 @@ Agents should pass `--json` on `peers`, `peers show`, `tasks`, `tasks show`, `re
 ```text
 ptc version
 ptc skill print
+ptc install --ssh HOST [--version VERSION] [--path PATH]
+ptc update [--ssh HOST] [--version VERSION] [--path PATH]
 ptc daemon --config config.yaml
 ptc peers[--json]
 ptc peers show <name|peer> [--json]
@@ -81,6 +129,6 @@ Optional Ubuntu CUDA node (official `nvidia/cuda:12.9.2-devel-ubuntu22.04`, GPU 
 
 ## Not provided (do not call)
 
-`ptc dataset`, `ptc gc`, `ptc status`, `ptc logs`, `ptc artifacts`, `ptc install --ssh`, `ptc update`, bitswap/filestore/pin, remote `ptc clean --node` (local only unless a future policy.remote_clean protocol is added), and submitting or cancelling from the WebUI. Official full P3 UI and P4 SSH install/upgrade are not done.
+`ptc dataset`, `ptc gc`, `ptc status`, `ptc logs`, `ptc artifacts`, UnixFS/filestore and full pin management, remote `ptc clean --node` (local only unless a future policy.remote_clean protocol is added), and submitting or cancelling from the WebUI. Official full P3 UI, service installation and coordinated mesh upgrades are not done. Standard Bitswap transport is implemented with the limits described above.
 
 Full flag lists and the loopback API are in [docs/CLI.md](docs/CLI.md). Prepare / Package result contracts: [docs/PREPARE.md](docs/PREPARE.md), [docs/PACKAGE-RESULT.md](docs/PACKAGE-RESULT.md).
