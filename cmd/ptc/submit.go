@@ -85,10 +85,14 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 				logs = cmd.ErrOrStderr()
 			}
 			var ensure func(context.Context, int64) error
+			var daemon *control.Client
 			if cli, clientErr := controlClient(); clientErr == nil {
+				daemon = cli
 				ensure = storageAdmission(cli, cfg)
 			} else if !errors.Is(clientErr, os.ErrNotExist) {
 				return clientErr
+			} else if fetchDir != "" {
+				return fmt.Errorf("--fetch-result needs a running ptc daemon: %w", clientErr)
 			}
 			res, err := run.Submit(loaded, run.Options{
 				Storage:     cfg.Storage,
@@ -122,9 +126,12 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 					return cli.ResourceContentContext(ctx, digest, quota.ReservationID(ctx))
 				},
 			})
+			if err == nil && fetchDir != "" && res.Digest != "" {
+				err = fetchResult(daemon, res.Digest, fetchDir, logs)
+			}
 			if jsonOut {
-				_ = printJSON(map[string]any{"run_id": res.ID, "status": res.Status, "digest": res.Digest, "task": res.TaskPath, "worktree": res.Worktree})
-				return err
+				encodeErr := printJSON(map[string]any{"run_id": res.ID, "status": res.Status, "digest": res.Digest, "task": res.TaskPath, "worktree": res.Worktree, "error": errString(err)})
+				return errors.Join(err, encodeErr)
 			}
 			if res.TaskPath != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "run recorded at %s\n", res.TaskPath)

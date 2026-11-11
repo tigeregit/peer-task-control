@@ -485,7 +485,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 
 `prepare.yaml` 的 `target.require_nvidia`（默认 true）和 `target.deny_non_exec`（默认 true）在提交者（目录预检）和目标上都会执行。无 NVIDIA、exec 关闭、或网关必须拒绝，并给出明确错误。exec 节点默认并发 1，后来的作业进入持久 FIFO 队列，而不是直接报忙。
 
-默认 follow：直到作业结束都打印状态和日志。`--detach` 在入队后返回。提交者断开 follow **不会**取消作业；要用 `ptc cancel <run-id>`。远程提交使用 `--json --fetch-result` 时，stdout 只输出一个 JSON 对象，下载提示写到 stderr；下载失败会填入 JSON 的 `error` 并返回非零退出状态。
+默认 follow：直到作业结束都打印状态和日志。`--detach` 在入队后返回。提交者断开 follow **不会**取消作业；要用 `ptc cancel <run-id>`。本机或远程提交使用 `--json --fetch-result` 时，stdout 只输出一个 JSON 对象，下载提示写到 stderr；下载失败会填入 JSON 的 `error` 并返回非零退出状态。
 
 ```text
 ptc submit --workflow testdata/submit/workflow.yaml --dry-run
@@ -502,7 +502,7 @@ ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda
 | `--job` | 空 | 工作流里有多个 job 时必须指定名称。只有一个 job 时可省略。 |
 | `--target` | 空（本机执行） | 节点名、peer id，或 `auto`（选一台合格的 exec 节点）。不要把 CUDA 作业指向网关。 |
 | `--detach` | false | 入队后返回，不跟随日志。 |
-| `--fetch-result <dir>` | 空 | follow 成功后把结果包解压到该目录。 |
+| `--fetch-result <dir>` | 空 | follow 成功后把结果包解压到该目录。本机提交也支持，但需要本机 daemon；没有 daemon 时在执行前报错。 |
 | `--inline-max` | 8388608 | 打进 bundle 的本地种子大小上限（字节）；`-1` 表示全部改为发布后按摘要拉取。 |
 | `--dry-run` | false | 只解析和校验，不执行、不下发。 |
 | `--force` | false | 仅本机执行：跳过 NVIDIA / exec 检查。 |

@@ -103,3 +103,26 @@ func TestRemoteSubmitFetchResultOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalSubmitFetchResultNeedsDaemonBeforeRunning(t *testing.T) {
+	data := t.TempDir()
+	cfgFile := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgFile, []byte("name: t\ndata_dir: "+filepath.ToSlash(data)+"\ntrusted_cidrs: [127.0.0.0/8]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldCfg, oldAPI, oldData := cfgPath, apiAddr, dataDir
+	cfgPath, apiAddr, dataDir = cfgFile, "", ""
+	defer func() { cfgPath, apiAddr, dataDir = oldCfg, oldAPI, oldData }()
+	cmd := submitCmd()
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--workflow", filepath.Join("..", "..", "testdata", "submit", "workflow.yaml"), "--fetch-result", t.TempDir()})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--fetch-result needs a running ptc daemon") {
+		t.Fatalf("err = %v", err)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(data, "runs")); len(entries) != 0 {
+		t.Fatalf("job ran before rejecting --fetch-result: %d run records", len(entries))
+	}
+}
