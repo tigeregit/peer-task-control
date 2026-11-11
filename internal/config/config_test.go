@@ -78,6 +78,49 @@ func TestScanHostsTrustResolvedIP(t *testing.T) {
 	}
 }
 
+func TestSaveWhileResolvingScanHosts(t *testing.T) {
+	dir := t.TempDir()
+	c := Defaults()
+	c.Path = filepath.Join(dir, "config.yaml")
+	c.DataDir = dir
+	c.TrustedCIDRs = []string{"127.0.0.0/8"}
+	c.ScanHosts = []string{"127.0.0.1"}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				c.ResolveScanHosts()
+			}
+		}
+	}()
+	var saveErr error
+	for i := 0; i < 50; i++ {
+		if saveErr = c.Save(); saveErr != nil {
+			break
+		}
+	}
+	close(stop)
+	<-done
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	loaded, err := Load(c.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.InTrustedIP(net.ParseIP("127.0.0.1")) {
+		t.Fatal("saved scan_hosts was not restored")
+	}
+}
+
 func TestStoragePathsAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	seeds := filepath.Join(dir, "seeds-root")

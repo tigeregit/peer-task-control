@@ -372,7 +372,9 @@ func (c *Config) Save() error {
 	if err := os.MkdirAll(filepath.Dir(c.Path), 0o700); err != nil {
 		return err
 	}
+	c.mu.RLock()
 	b, err := yaml.Marshal(c)
+	c.mu.RUnlock()
 	if err != nil {
 		return err
 	}
