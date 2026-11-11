@@ -78,6 +78,7 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 				Force:        force,
 				KeepWorktree: keep,
 				Stdout:       cmd.OutOrStdout(),
+				Pull:         daemonPull(),
 			})
 			if jsonOut {
 				_ = printJSON(map[string]any{"run_id": res.ID, "status": res.Status, "digest": res.Digest, "task": res.TaskPath, "worktree": res.Worktree})
@@ -249,4 +250,21 @@ func fetchResult(cli interface {
 	}
 	fmt.Fprintf(w, "fetched %s into %s (%d files, %d bytes)\n", digest, dir, files, n)
 	return nil
+}
+
+// daemonPull lets a local submit fetch missing seeds through the running
+// daemon's bitswap data plane. Returns nil when no daemon is running.
+func daemonPull() func(ctx context.Context, digest string, log io.Writer) error {
+	cli, err := controlClient()
+	if err != nil {
+		return nil
+	}
+	return func(_ context.Context, digest string, log io.Writer) error {
+		res, err := cli.Pull(digest)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(log, "bitswap: daemon pulled %s (%d bytes, %.1f MiB/s) into %s\n", res.Digest, res.Fetch.Bytes, res.Fetch.MBPerSec, res.Path)
+		return nil
+	}
 }

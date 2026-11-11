@@ -218,8 +218,8 @@ func printDisk(u *disk.Usage) {
 	if u == nil {
 		return
 	}
-	fmt.Printf("ptc     seeds %s  worktrees %s  outputs %s  records %s\n",
-		humanSize(u.SeedsBytes), humanSize(u.WorktreesBytes), humanSize(u.OutputsBytes), humanSize(u.RecordsBytes))
+	fmt.Printf("ptc     seeds %s  worktrees %s  outputs %s  records %s  blocks %s\n",
+		humanSize(u.SeedsBytes), humanSize(u.WorktreesBytes), humanSize(u.OutputsBytes), humanSize(u.RecordsBytes), humanSize(u.BlocksBytes))
 	for _, v := range u.Volumes {
 		fmt.Printf("disk    %s (%s)  %s free / %s total  (%s used)\n",
 			v.Path, v.Role, humanSize(v.Free), humanSize(v.Total), humanSize(v.Used))

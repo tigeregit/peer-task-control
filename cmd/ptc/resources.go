@@ -31,7 +31,7 @@ func resourcesCmd() *cobra.Command {
 	cmd.Flags().StringVar(&f.Node, "node", "", "only seeds stored on this node name or peer id")
 	cmd.Flags().StringVar(&f.Sort, "sort", "name", "name, size, kind, hops, replicas, created, digest")
 	cmd.Flags().StringVar(&f.Order, "order", "", "asc or desc (default desc for size/replicas)")
-	cmd.AddCommand(resourcesShowCmd(), resourcesGetCmd())
+	cmd.AddCommand(resourcesShowCmd(), resourcesGetCmd(), resourcesPullCmd())
 	return cmd
 }
 
@@ -54,6 +54,9 @@ func resourcesShowCmd() *cobra.Command {
 				return printJSON(info)
 			}
 			fmt.Printf("digest  %s\n", info.Digest)
+			if info.CID != "" {
+				fmt.Printf("cid     %s\n", info.CID)
+			}
 			if info.Name != "" {
 				fmt.Printf("name    %s\n", info.Name)
 			}
@@ -144,9 +147,9 @@ func resourcesList(jsonOut bool, f query.ResourceFilter) error {
 		fmt.Printf("viewer %s  peer %s  %d seed(s)\n\n", list.Viewer, list.PeerID, len(list.Seeds))
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "DIGEST\tNAME\tKIND\tSIZE\tNODES\tCREATED\tHOPS")
+	fmt.Fprintln(w, "DIGEST\tCID\tNAME\tKIND\tSIZE\tNODES\tCREATED\tHOPS")
 	for _, s := range list.Seeds {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n", s.Digest, s.Name, s.Kind, humanSize(s.Size), len(s.Locations), fmtCreated(s.CreatedAt), fmtMinHops(s.Locations))
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", s.Digest, shortCID(s.CID), s.Name, s.Kind, humanSize(s.Size), len(s.Locations), fmtCreated(s.CreatedAt), fmtMinHops(s.Locations))
 	}
 	return w.Flush()
 }
@@ -244,4 +247,50 @@ func printResourceFiles(info resource.Info, listFiles bool) {
 		fmt.Fprintf(fw, "%s\t%s\t%s\n", f.Path, kind, humanSize(f.Size))
 	}
 	_ = fw.Flush()
+}
+
+func shortCID(c string) string {
+	if c == "" {
+		return "-"
+	}
+	if len(c) <= 20 {
+		return c
+	}
+	return c[:8] + "…" + c[len(c)-8:]
+}
+
+func resourcesPullCmd() *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "pull DIGEST",
+		Short: "Fetch a seed into this node's store with bitswap (from every holder)",
+		Long:  "Asks the local daemon to fetch the seed's blocks with bitswap from any holders on the trusted mesh, verify the DirDigest (tree) or sha256 (blob), and keep it as a temporary replica that this node then serves too. A replica can be removed with `ptc clean resource`.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cli, err := controlClient()
+			if err != nil {
+				return err
+			}
+			res, err := cli.Pull(args[0])
+			if jsonOut {
+				_ = printJSON(res)
+				return err
+			}
+			if err != nil {
+				return fmt.Errorf("pull: %w", err)
+			}
+			if res.AlreadyHad {
+				fmt.Printf("%s is already on this node at %s\n", res.Digest, res.Path)
+				return nil
+			}
+			secs := float64(res.Fetch.DurationNS) / 1e9
+			fmt.Printf("pulled %s (%s)\n  cid      %s\n  received %s in %d blocks in %.2fs (%.1f MiB/s)\n  stored   %s\n", res.Digest, res.Kind, res.CID, humanSize(res.Fetch.Bytes), res.Fetch.Blocks, secs, res.Fetch.MBPerSec, res.Path)
+			for _, p := range res.Fetch.Providers {
+				fmt.Printf("  from     %s: %d blocks, %s\n", p.Peer, p.Blocks, humanSize(p.Bytes))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "print JSON")
+	return cmd
 }
