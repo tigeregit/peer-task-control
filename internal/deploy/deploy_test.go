@@ -114,7 +114,7 @@ func TestSSHReplaceQuotesPathAndStreamsVerifiedBytes(t *testing.T) {
 	ssh := SSHOptions{
 		Host:           "deploy@node-1",
 		Port:           2222,
-		KnownHostsFile: `C:\Users\me\.ssh\known hosts`,
+		KnownHostsFile: "keys" + string(os.PathSeparator) + "known hosts",
 		Runner: func(_ context.Context, name string, args []string, stdin io.Reader, _, _ io.Writer) error {
 			if name != "ssh" {
 				t.Fatalf("unexpected executable %q", name)
@@ -142,7 +142,7 @@ func TestSSHReplaceQuotesPathAndStreamsVerifiedBytes(t *testing.T) {
 	if !strings.Contains(joined, "-o BatchMode=yes") || !strings.Contains(joined, "-p 2222") {
 		t.Fatalf("SSH options missing: %q", joined)
 	}
-	if !strings.Contains(joined, `UserKnownHostsFile="C:/Users/me/.ssh/known hosts"`) ||
+	if !strings.Contains(joined, `UserKnownHostsFile="keys/known hosts"`) ||
 		!strings.Contains(joined, "StrictHostKeyChecking=yes") {
 		t.Fatalf("custom known-hosts file did not retain strict checking: %q", joined)
 	}

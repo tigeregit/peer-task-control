@@ -3,13 +3,11 @@ package workflow
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
 func testdata() string {
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "testdata", "submit")
+	return filepath.Join("..", "..", "testdata", "submit")
 }
 
 func TestSeedOnlyWorkflow(t *testing.T) {

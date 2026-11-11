@@ -65,12 +65,11 @@ func TestSeedOnlyRejectsCorruptResourceAndCancellation(t *testing.T) {
 	}
 }
 func TestSubmitLocalFixture(t *testing.T) {
-	_, file, _, _ := runtime.Caller(0)
 	name := "workflow.yaml"
 	if runtime.GOOS == "windows" {
 		name = "workflow.windows.yaml"
 	}
-	wf := filepath.Join(filepath.Dir(file), "..", "..", "testdata", "submit", name)
+	wf := filepath.Join("..", "..", "testdata", "submit", name)
 	loaded, err := workflow.LoadJob(wf, "")
 	if err != nil {
 		t.Fatal(err)
