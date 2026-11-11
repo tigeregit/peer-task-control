@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	DefaultListen     = "0.0.0.0:18765"
-	DefaultAPI        = "127.0.0.1:18780"
-	DefaultScanPeriod = 30 * time.Second
-	DefaultPort       = 18765
+	DefaultListen                        = "0.0.0.0:18765"
+	DefaultAPI                           = "127.0.0.1:18780"
+	DefaultScanPeriod      time.Duration = 0
+	DefaultScanMinInterval               = time.Minute
+	DefaultPort                          = 18765
 )
 
 type Services struct {
@@ -98,16 +99,17 @@ func (c *Config) SavePolicy(services Services, allow, deny []string) error {
 }
 
 type Config struct {
-	Name         string        `yaml:"name"`
-	Listen       string        `yaml:"listen"`
-	API          string        `yaml:"api"`
-	DataDir      string        `yaml:"data_dir"`
-	TrustedCIDRs []string      `yaml:"trusted_cidrs"`
-	PSK          string        `yaml:"psk,omitempty"`
-	Services     Services      `yaml:"services"`
-	Policy       Policy        `yaml:"policy"`
-	ScanInterval time.Duration `yaml:"scan_interval"`
-	DisableMDNS  bool          `yaml:"disable_mdns,omitempty"`
+	Name            string        `yaml:"name"`
+	Listen          string        `yaml:"listen"`
+	API             string        `yaml:"api"`
+	DataDir         string        `yaml:"data_dir"`
+	TrustedCIDRs    []string      `yaml:"trusted_cidrs"`
+	PSK             string        `yaml:"psk,omitempty"`
+	Services        Services      `yaml:"services"`
+	Policy          Policy        `yaml:"policy"`
+	ScanInterval    time.Duration `yaml:"scan_interval"`
+	ScanMinInterval time.Duration `yaml:"scan_min_interval"`
+	DisableMDNS     bool          `yaml:"disable_mdns,omitempty"`
 	// ScanHosts are extra probe targets (hostname, IP, or host:port) the
 	// gateway should dial in addition to trusted CIDR scans. Resolved IPs
 	// are also admitted by the connection gater, so a Docker Desktop host
@@ -138,12 +140,13 @@ func DefaultDataDir() string {
 func Defaults() *Config {
 	host, _ := os.Hostname()
 	return &Config{
-		Name:         host,
-		Listen:       DefaultListen,
-		API:          DefaultAPI,
-		DataDir:      DefaultDataDir(),
-		Services:     Services{Exec: true, Files: true, Relay: false},
-		ScanInterval: DefaultScanPeriod,
+		Name:            host,
+		Listen:          DefaultListen,
+		API:             DefaultAPI,
+		DataDir:         DefaultDataDir(),
+		Services:        Services{Exec: true, Files: true, Relay: false},
+		ScanInterval:    DefaultScanPeriod,
+		ScanMinInterval: DefaultScanMinInterval,
 	}
 }
 
@@ -180,8 +183,11 @@ func (c *Config) Normalize() error {
 	if c.DataDir == "" {
 		c.DataDir = DefaultDataDir()
 	}
-	if c.ScanInterval <= 0 {
-		c.ScanInterval = DefaultScanPeriod
+	if c.ScanInterval < 0 || c.ScanMinInterval < 0 {
+		return fmt.Errorf("scan_interval and scan_min_interval must not be negative")
+	}
+	if c.ScanMinInterval == 0 {
+		c.ScanMinInterval = DefaultScanMinInterval
 	}
 	if _, _, err := net.SplitHostPort(c.Listen); err != nil {
 		return fmt.Errorf("listen %q: %w", c.Listen, err)

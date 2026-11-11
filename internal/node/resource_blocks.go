@@ -28,13 +28,17 @@ import (
 const ProtocolResourceBlocks protocol.ID = "/ptc/resource-blocks/1.0.0"
 
 func (n *Node) resourcePeerDecision(p peer.ID) policy.Decision {
+	return n.peerDecision("files", p)
+}
+
+func (n *Node) peerDecision(service string, p peer.ID) policy.Decision {
 	name := ""
 	if e, ok := n.Catalog.Get(p.String()); ok {
 		name = e.Name
 	}
 	conns := n.Host.Network().ConnsToPeer(p)
 	if len(conns) == 0 {
-		return n.Store.Check("files", p.String(), name, nil)
+		return n.Store.Check(service, p.String(), name, nil)
 	}
 	for _, c := range conns {
 		var ip net.IP
@@ -43,7 +47,7 @@ func (n *Node) resourcePeerDecision(p peer.ID) policy.Decision {
 		if !isCircuit(c.RemoteMultiaddr()) {
 			ip, _ = manet.ToIP(c.RemoteMultiaddr())
 		}
-		if d := n.Store.Check("files", p.String(), name, ip); !d.Allow {
+		if d := n.Store.Check(service, p.String(), name, ip); !d.Allow {
 			return d
 		}
 	}

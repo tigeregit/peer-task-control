@@ -36,6 +36,14 @@ Details, flags, exit codes, and the HTTP API live in [docs/CLI.md](docs/CLI.md).
 
 WebUI (`ptc webui`) is **read-only**. Do not try to submit, cancel, change policy, or clean through the board. Those are CLI-only.
 
+## Discovery scans
+
+`scan_interval: 0s` (the default) means one startup scan, then passive discovery; set a positive duration such as `5m` to repeat after each scan completes. mDNS, incoming connections, and existing mesh maintenance remain active. Explicit old `30s` settings retain periodic behavior. Policy changes do not trigger scans.
+
+Use `ptc scan [--json]` for the local daemon, or `ptc scan --node <known-relay-name|peer-id> [--json]` to request a relay scan. Relay scans cover trusted CIDRs; normal local scans cover local trusted subnets. Both include configured `scan_hosts`. Remote requests require relay service and allow/deny permission, not files/exec.
+
+`scan_min_interval` defaults to `60s`: one global manual-request cooldown on the target, shared by local CLI and every remote peer. Pending/running scans and requests within cooldown are rejected, never deferred; rejected requests do not extend cooldown. Startup/periodic scans do not consume manual quota. Restart resets the cooldown. Success means queued, not completed. JSON refusals include status/error and applicable retry_after_seconds; exit is nonzero. HTTP uses 202 accepted, 409 busy, 429 limited with Retry-After, and 403 denied.
+
 ## Seed-only tasks (supported action)
 
 Use a workflow whose only step is `uses: ptc/seed@v0`, with `with.file: seeds.yaml`.

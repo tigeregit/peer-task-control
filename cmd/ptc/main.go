@@ -41,7 +41,7 @@ func rootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVar(&worktreesDir, "worktrees-dir", "", "override worktree root (PTC_WORKTREES_DIR)")
 	cmd.PersistentFlags().StringVar(&runsDir, "runs-dir", "", "override run records directory (PTC_RUNS_DIR)")
 	cmd.PersistentFlags().StringVar(&apiAddr, "api", "", "local daemon API host:port (default: read daemon.lock)")
-	cmd.AddCommand(daemonCmd(), peersCmd(), policyCmd(), skillCmd(), webuiCmd(), submitCmd(), resourcesCmd(), tasksCmd(), queueCmd(), cancelStandaloneCmd(), cleanCmd(), installCmd(), updateCmd(), versionCmd())
+	cmd.AddCommand(daemonCmd(), peersCmd(), policyCmd(), skillCmd(), webuiCmd(), submitCmd(), resourcesCmd(), tasksCmd(), queueCmd(), cancelStandaloneCmd(), cleanCmd(), installCmd(), updateCmd(), versionCmd(), scanCmd())
 	return cmd
 }
 

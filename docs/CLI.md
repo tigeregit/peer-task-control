@@ -154,13 +154,34 @@ ptc daemon --config config.yaml --data-dir D:\ptc-data
 - `--data-dir` 会覆盖配置里的 `data_dir`。
 - 监听组网端口（默认 `0.0.0.0:18765`）和本机 API（默认 `127.0.0.1:18780`）。
 - 控制 API 只接受 loopback 来源。
-- 同网段用 mDNS 和端口探测发现邻居；跨网段由 `services.relay: true` 的网关按 `scan_interval` 扫描受信任网段并推送目录。
+- 同网段用 mDNS 和启动时的端口探测发现邻居；`services.relay: true` 的网关扫描全部受信任网段并推送目录。默认只在启动时扫描一次，后续被动接收发现/连接；需要周期探测时显式配置正数 `scan_interval`。
 - 经 NAT 或 Docker 端口映射访问网关时，应同时映射组网端口的 TCP 和 UDP。节点与网关重连后会立即重新预约中继；预约失败会记录警告。
 - 目录中的 loopback 地址属于公布地址的节点，不会被其他节点当作直连地址。同机运行多个节点时，可以用 `scan_hosts` 显式指定各自的 `127.0.0.1:端口`。
 - 配置里**不要**填写邻居名单。
 - 启动成功后 stderr 会打印节点名、peer ID 和 API 地址，并提示随后使用 `ptc peers`。
 - 用 Ctrl+C 或 SIGTERM 停止。
 - 本机 `ptc update` 或 mesh 更新替换二进制后，daemon 会按请求重启（Unix 用 exec 保持同一 PID；Windows 先拉起新进程再退出，并用隐藏的 `--wait-pid` 等待旧进程释放端口）。
+
+### `ptc scan`
+
+```text
+ptc scan
+ptc scan --node gateway
+ptc scan --node <relay-peer-id> --json
+```
+
+省略 `--node` 时请求本机 daemon 扫描一次；本机为 relay 时扫描全部 `trusted_cidrs`，否则只扫描本机受信任网段。配置的 `scan_hosts` 仍会一并探测。指定 `--node` 时经本机 daemon 向已知 relay 发出 `/ptc/scan/1.0.0` 请求；目标必须开启 relay，且允许调用者通过 allow/deny 策略检查。不向未知节点猜测连接地址，也不支持旧 daemon 自动回退扫描。
+
+```yaml
+scan_interval: 0s
+scan_min_interval: 60s
+```
+
+`scan_interval` 省略或为 `0s` 表示无限周期：启动时仅扫描一次，之后不会自行重复扫描。改成 `5m` 等正数后，每次扫描结束再等待该周期；手动扫描不会启用原本关闭的周期任务。修改策略本身不触发扫描。原配置若明确写有 `30s`，升级后仍按 30 秒周期执行。mDNS、入站连接和已建立连接上的目录/中继维护不因关闭周期探测而停用。
+
+`scan_min_interval` 是**目标节点全部手动请求共用**的最小接受间隔，默认 60 秒；本机 CLI、所有远端 peer 都共用一个额度。扫描已排队/运行时立即拒绝；冷却期内立即拒绝，不排队补跑，也不因拒绝延长冷却。启动和周期扫描不消耗手动额度，但进行中仍阻止重复手动扫描。额度在 daemon 重启后重置。
+
+成功仅表示已接受排队，不表示扫描已经完成。`--json` 输出 `node`、`peer_id`、`status`，拒绝时包含 `error` 和适用的 `retry_after_seconds`，命令退出码非零。HTTP 接受返回 202，忙返回 409，限频返回 429 并带 `Retry-After`，策略/非 relay 拒绝返回 403；本地 API 转发到远端时保留这些状态。
 
 ### `ptc peers`
 
@@ -407,7 +428,8 @@ YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不�
 | `policy.allow` | 字符串列表 | `[]` | 本机白名单。 |
 | `policy.deny` | 字符串列表 | `[]` | 本机黑名单，优先于白名单。 |
 | `update.accept_remote` | 布尔 | `true` | 是否接受受信任节点发起的同主版本网格升级。可用 `ptc policy update` 修改。 |
-| `scan_interval` | 时长 | `30s` | 网关扫描受信任网段的间隔。小于等于 0 时回落到 30s。 |
+| `scan_interval` | 非负时长 | `0s` | 0 表示无限周期，仅启动扫描一次；正数为每次扫描完成后到下一次扫描的间隔。 |
+| `scan_min_interval` | 正时长 | `60s` | 全部本地/远端手动扫描请求共用的冷却间隔；省略或 0 取默认，负数非法。 |
 | `disable_mdns` | 布尔 | `false` | 为 true 时不做 mDNS 发现。Docker 跨网段测试会用到。 |
 | `scan_hosts` | 字符串列表 | `[]` | 网关在 CIDR 扫描之外额外探测的目标（主机名、IP，或 `host:port`）。解析到的地址也会被连接门禁放行。Docker 演示里网关用 `host.docker.internal` 找到 Windows 本机节点，而不去扫描整个 Docker Desktop 虚拟网段。 |
 
@@ -435,6 +457,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | `POST` | `/api/v1/exec?target=<name>&follow=1` | 本机 daemon 把请求体中的 bundle 下发到目标；follow 时返回 NDJSON 事件 |
 | `GET` | `/api/v1/queue` | 网格内排队中 / 正在运行的作业 |
 | `POST` | `/api/v1/cancel` | `{"id":"<run-id 或 job-id>"}`，取消排队或运行中的作业 |
+| `POST` | `/api/v1/scan` | `{}` 触发本机，`{"node":"<relay 名称或 peer-id>"}` 请求已知 relay；202 已接受、409 忙、429 限频（含 `Retry-After`）、403 拒绝、404 节点不存在。 |
 | `POST` | `/api/v1/storage/ensure` | 本地 runner 的容量准入：`incoming` bytes、`seeds_dir`、`worktrees_dir`、可选 `reservation_id`；根目录不匹配、容量不足或不能安全清理返回 409。只保证当次检查，调用方还须持有磁盘 reservation。 |
 | `POST` | `/api/v1/update/mesh` | 滚动升级请求（`version`、`nodes`、`batch`、`assets_dir`、`dry_run`） |
 | `POST` | `/api/v1/update/restart` | 请求本机 daemon 用已替换的二进制重新 exec |

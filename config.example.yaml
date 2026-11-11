@@ -35,8 +35,15 @@ policy:
   allow: []
   deny: []
 
-# 网关（relay: true）扫描受信任网段的间隔。
-scan_interval: 30s
+# 扫描周期。0s 表示无限间隔：只在启动时扫描一次，之后被动发现邻居。
+# 正数（例如 5m）表示每次扫描完成后等待该周期，再扫描一次。
+# relay 扫描全部受信任网段；普通节点只扫描本机受信任网段。
+scan_interval: 0s
+
+# 手动触发扫描的全局最小间隔。默认 60s，须为正数。
+# 本机 ptc scan 和所有远端请求共享额度，不按请求节点分别计算。
+# 正在扫描/等待扫描时拒绝重复触发；被拒绝的请求不会延长冷却期。
+scan_min_interval: 60s
 
 # 额外探测目标（主机名、IP，或 host:port）。解析到的地址也会被准入。
 # 用来把本机 Windows 节点接到 Docker 网格：gateway 写 host.docker.internal。

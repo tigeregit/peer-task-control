@@ -6,7 +6,44 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
+
+func TestScanConfigurationDefaultsAndRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	for _, interval := range []string{"", "scan_interval: 0s\n", "scan_interval: 5m\nscan_min_interval: 2m\n"} {
+		if err := os.WriteFile(path, []byte("trusted_cidrs: [127.0.0.1/32]\ndata_dir: "+filepath.ToSlash(dir)+"\n"+interval), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantPeriod, wantMin := time.Duration(0), time.Minute
+		if interval == "scan_interval: 5m\nscan_min_interval: 2m\n" {
+			wantPeriod, wantMin = 5*time.Minute, 2*time.Minute
+		}
+		if cfg.ScanInterval != wantPeriod || cfg.ScanMinInterval != wantMin {
+			t.Fatalf("unexpected scan settings: %v / %v", cfg.ScanInterval, cfg.ScanMinInterval)
+		}
+		if err := cfg.Save(); err != nil {
+			t.Fatal(err)
+		}
+		reloaded, err := Load(path)
+		if err != nil || reloaded.ScanInterval != wantPeriod || reloaded.ScanMinInterval != wantMin {
+			t.Fatalf("scan settings changed after save: %+v, %v", reloaded, err)
+		}
+	}
+	for _, invalid := range []string{"scan_interval: -1s\n", "scan_min_interval: -1s\n", "scan_interval: invalid\n"} {
+		if err := os.WriteFile(path, []byte("trusted_cidrs: [127.0.0.1/32]\n"+invalid), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Fatalf("accepted invalid scan configuration %q", invalid)
+		}
+	}
+}
 
 func TestRemoteUpdatePolicySavesConcurrently(t *testing.T) {
 	c := Defaults()

@@ -63,6 +63,7 @@ type Node struct {
 	mu          sync.Mutex
 	localTime   time.Time
 	scanNow     chan struct{}
+	scanning    scanState
 	relayKick   chan struct{}
 	selfAddrs   map[string]struct{}
 	queue       *dispatch.Queue
@@ -151,6 +152,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	h.SetStreamHandler(ProtocolResourceBlocks, n.handleResourceBlocks)
 	h.SetStreamHandler(ProtocolUpdate, n.handleUpdate)
 	h.SetStreamHandler(ProtocolRetention, n.handleRetention)
+	h.SetStreamHandler(ProtocolScan, n.handleScan)
 	n.initUpdate()
 	if err := n.initExec(); err != nil {
 		cancel()
@@ -326,9 +328,6 @@ func (n *Node) PersistPolicy() error {
 	n.bumpLocal()
 	n.Catalog.Put(n.LocalEntry())
 	n.broadcast()
-	if relayOn {
-		n.RequestScan()
-	}
 	return nil
 }
 
@@ -339,10 +338,7 @@ func (n *Node) bumpLocal() {
 }
 
 func (n *Node) RequestScan() {
-	select {
-	case n.scanNow <- struct{}{}:
-	default:
-	}
+	_, _ = n.queueScan(false, time.Now())
 }
 
 func (n *Node) startAPI() error {
@@ -504,26 +500,38 @@ func (n *Node) Probe(ctx context.Context, hostport string) error {
 
 func (n *Node) scanLoop() {
 	interval := n.Cfg.ScanInterval
-	if interval <= 0 {
-		interval = config.DefaultScanPeriod
+	var timer *time.Timer
+	var periodic <-chan time.Time
+	if interval > 0 {
+		timer = time.NewTimer(interval)
+		periodic = timer.C
+		defer timer.Stop()
 	}
-	timer := time.NewTimer(0)
-	defer timer.Stop()
 	for {
 		select {
 		case <-n.ctx.Done():
 			return
 		case <-n.scanNow:
-		case <-timer.C:
-		}
-		n.runScan()
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
+			if n.ctx.Err() != nil {
+				n.finishScan()
+				return
 			}
+			n.Log.Debug("peer scan started")
+			n.runScan()
+			n.finishScan()
+			n.Log.Debug("peer scan completed")
+			if timer != nil {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(interval)
+			}
+		case <-periodic:
+			n.RequestScan()
 		}
-		timer.Reset(interval)
 	}
 }
 
@@ -559,8 +567,13 @@ func (n *Node) runScan() {
 	var wg sync.WaitGroup
 	for _, hostport := range hostports {
 		hostport := hostport
+		select {
+		case <-n.ctx.Done():
+			wg.Wait()
+			return
+		case sem <- struct{}{}:
+		}
 		wg.Add(1)
-		sem <- struct{}{}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
