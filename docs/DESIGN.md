@@ -1,31 +1,33 @@
-# 系统设计（P0 摘要）
+# System design (P0 summary)
 
-完整草案以 Page 为准：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。
+[English](DESIGN.md) | [中文](zh/DESIGN.md)
 
-本文件只保留实现时要遵守的要点，避免和 Page 长期分叉。若冲突，以 Page 为准，并改这里。已完成与未完成的阶段清单见 [ROADMAP.md](ROADMAP.md)。
+The full draft lives on this Page: [peer-task-control design draft](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413).
 
-## 目标
+This file keeps only the points that an implementation must follow, so it does not drift from the Page over time. If they conflict, the Page wins, and this file must be updated. Completed and remaining phases are listed in [ROADMAP.md](ROADMAP.md).
 
-Windows 上开发 CUDA。任务要把程序和大量测试数据送到正确的机器。数据总体是 TB 级，每份至少有一个副本。机器跨网段；只有对其他网段有白名单访问的主机能主动连出去。这些网关可装 daemon、可存数据，但没有 NVIDIA GPU，不能作为 CUDA 目标。
+## Goals
 
-## 组网（P0）
+CUDA development happens on Windows. A job must deliver the program and a large amount of test data to the right machine. Data is at terabyte scale overall, and each object has at least one replica. Machines span network segments; only hosts with allow-listed access to other segments can dial out. Those gateways may run the daemon and store data, but they have no NVIDIA GPU and cannot be CUDA targets.
 
-- 传输和身份用 go-libp2p，固定 TCP 端口 **18765**，不加入公网 IPFS。
-- 项目配置只有受信任 CIDR 和端口，**不预置邻居名单**。
-- 安全假设：指定网段内的设备都可信，加入不做成员验证。网段外即使拿到二进制也不接纳。可选集群 PSK 只挡网段外误连。
-- 同网段：mDNS + 对网段固定端口探测。扫描时先向同一端口的 UDP 发一条极短的身份询问（`PTC/1 IDENT`），拿到 libp2p peer ID 后再走加密连接。这不是另套组网协议。
-- 跨网段：只有网关能主动拨号并保持会话；网关定期扫描所有受信任网段的固定端口，握手后把完整邻居与服务目录推给新节点。对端不必能回连网关。
-- 服务角色：执行（NVIDIA GPU，可跑 CUDA）、文件（数据副本）、中转（访问其他受信任网段并转发）。一台机器可同时提供多项。
-- 本机策略：可按 IP、CIDR、节点名、peer ID 设白名单 / 黑名单，或关闭部分功能。默认名单空、功能开。有白名单则只为名单内提供该服务，黑名单优先。目录里仍能看到该节点，但标出关闭的服务；拒绝必须带原因。这是主机操作策略，不是集群认证。
-- CUDA 任务派到网关必须拒绝（P2 实现，P0 在目录中把无 GPU 的 exec 标为不可用）。
+## Mesh (P0)
 
-## 阶段进度
+- Transport and identity use go-libp2p, with a fixed TCP port **18765**. The mesh does not join public IPFS.
+- Project config has only trusted CIDRs and the port. **There is no preset neighbor list.**
+- Security assumption: every device in the listed segments is trusted, and joining does no membership authentication. A host outside those segments is refused even if it has the binary. An optional cluster PSK only blocks accidental connections from outside the segments.
+- Same segment: mDNS plus probes of the fixed port on the segment. During a scan, the node first sends a very short identity query (`PTC/1 IDENT`) on UDP to the same port, then opens the encrypted connection after it has the libp2p peer ID. This is not a second mesh protocol.
+- Cross segment: only a gateway can dial out and keep the session. The gateway periodically scans the fixed port on every trusted segment and, after handshake, pushes the full neighbor and service catalog to the new node. The peer does not need to be able to dial back to the gateway.
+- Service roles: exec (NVIDIA GPU, can run CUDA), files (data replicas), and relay (reach other trusted segments and forward). One machine may offer more than one.
+- Local policy: allow / deny lists may use IP, CIDR, node name, or peer ID, and individual features may be turned off. Defaults are an empty list and features on. A non-empty allow list means the service is offered only to entries on the list; the deny list wins. The node still appears in the catalog, with disabled services marked; a refusal must include a reason. This is host operational policy, not cluster authentication.
+- Dispatching a CUDA job to a gateway must be refused (implemented in P2; P0 marks exec without a GPU as unavailable in the catalog).
 
-- P0：组网（见上）。已完成。
-- P1：标准 Boxo Bitswap 数据面已实现。受信任主机及现有 circuit-v2 中转连接承载标准 Bitswap；`/ptc/resource-blocks/1.0.0` 将 PTC sha256 资源摘要映射到 raw CID 的传输 manifest，再交换 256KiB payload 块。小资源保留 v1 平面 manifest；超过 10,000 块后自动生成 v2 Merkle 索引：根保存 `index` CID、`height`、资源摘要和 int64 总字节数；索引页保存层高、子树字节数及最多 256 个带字节数的 CID 引用。叶页引用数据块，父页引用索引页，所有页和数据仍是 raw SHA-256 CID。构建仅保留各层未满的一页，接收逐页流式遍历，检查层高、扇出、子树大小、块长度及溢出，索引层高最多 8，足以覆盖 int64 可表示的资源大小。
+## Phase status
 
-  目录仍为 PTC DirDigest + tar，不是 UnixFS；资源发现不使用公网 DHT。files 服务和名单策略在根发现、块请求及发包时动态执行。下载完整暂存后校验资源摘要；副本失败尝试下一个，只有协议不支持才回退旧整包协议，v2 格式错误不会回退。新节点读取 v1/v2；大资源的提供者与接收者均须升级。持久块缓存位于种子盘 `blocks/`，暂存位于 `.fetch/`，均计入种子磁盘用量。不再以固定总块数限制资源，但仍受磁盘空间、单块 20 秒和总计 30 分钟超时限制；不承诺 TB 级实测。UnixFS / filestore、CID / dataset 输入、分块 GC 和完整 pin 管理尚未实现。
-- P2：工作树任务。任务大纲借鉴 Actions 的 job/step，每个 job 必须以 Prepare 开头、以 Package result 收尾（[PREPARE.md](PREPARE.md)、[PACKAGE-RESULT.md](PACKAGE-RESULT.md)，模板在 [templates/](templates/)）。`ptc submit` 可在本机执行，也可用 `--target`（或 `auto`）经 `/ptc/exec/1.0.0` 下发到指定 exec 节点。目标执行与本机同一套 Prepare → steps → Package result 路径。已发布种子按摘要从最短路径持有者拉取并校验（目录单元用 DirDigest）；仅存在于提交者本地路径的种子先在提交者上发布。exec 节点有持久 FIFO 队列，默认并发 1。`require_nvidia`（默认 true）作业派到无 GPU 或 exec 关闭的节点（包括网关）必须拒绝。工作树与种子分目录存储；清工作树不得删除 CAS/packages。结果包默认临时，可 pin。
-- P3：WebUI 与版本绑定 skill 的完整界面。当前已有只读任务看板（任务 / 资源 / 节点，节点展示真实磁盘占用）。官方完整产品界面仍待后续。提交、取消、清理只走 CLI。
-- P2 纯做种例外：job 唯一的 `ptc/seed@v0` step 指向 `kind: Seed` 集合。仅获取、校验、保留并公开副本，不创建工作树、不运行、不打包；仍有任务记录和持久队列。远端按 files 策略接受，不要求 exec / GPU；普通工作流仍按 exec 策略接受，不能借此绕过执行权限。bundle 必须为每个种子提供唯一计划，不能在目标上解析提交者的本地路径。示例见 [PREPARE.md](PREPARE.md#纯做种任务)。
-- P4：已实现 SSH 单机安装/更新、本机更新，以及同主版本的网格滚动升级（`ptc update --mesh`）。下载官方 Release 并验证 SHA256，失败回滚；SSH 保持严格主机密钥校验，支持 Linux amd64/arm64 和 Windows amd64。本机 Linux/macOS 可自更新，Windows 须更新另一个未运行的 exe。本机 / mesh 更新成功后会重启正在运行的 daemon（可用 `--no-restart` 跳过）。操作系统服务安装，以及 SSH 安装写入远端 `install.json`，仍未实现，参见 [CLI.md](CLI.md)。
+- P0: mesh (see above). Done.
+- P1: the standard Boxo Bitswap data plane is implemented. Trusted hosts and existing circuit-v2 relay connections carry standard Bitswap. `/ptc/resource-blocks/1.0.0` maps a PTC sha256 resource digest to a raw-CID transport manifest, then exchanges 256KiB payload blocks. Small resources keep a v1 flat manifest. Beyond 10,000 blocks a v2 Merkle index is generated automatically: the root stores the `index` CID, `height`, the resource digest, and an int64 byte total; index pages store the level, subtree byte count, and up to 256 CID references with byte counts. Leaf pages reference data blocks; parent pages reference index pages. All pages and data remain raw SHA-256 CIDs. Builds keep only the one unfinished page at each level. Receivers stream page by page, checking level, fan-out, subtree size, block length, and overflow. Index height is capped at 8, which is enough for any resource size representable by int64.
+
+  The catalog is still PTC DirDigest + tar, not UnixFS. Resource discovery does not use a public DHT. The files service and list policy are enforced dynamically on root discovery, block requests, and sends. A download is verified against the resource digest after it is fully staged. A failed replica moves on to the next one. Fallback to the old whole-package protocol happens only when the peer does not support the protocol; a v2 format error does not fall back. New nodes read v1 and v2. Both the provider and the receiver of a large resource must be upgraded. The persistent block cache lives in `blocks/` on the seed volume; staging lives in `.fetch/`. Both count toward seed disk usage. There is no longer a fixed total-block cap, but disk space, a 20-second per-block timeout, and a 30-minute overall timeout still apply. Terabyte-scale runs are not claimed. UnixFS / filestore, CID / dataset inputs, block GC, and full pin management are not implemented yet.
+- P2: worktree jobs. Task outlines follow Actions-style jobs and steps. Every job must start with Prepare and end with Package result ([PREPARE.md](PREPARE.md), [PACKAGE-RESULT.md](PACKAGE-RESULT.md); templates are in [templates/](templates/)). `ptc submit` can run locally, or dispatch with `--target` (or `auto`) over `/ptc/exec/1.0.0` to a named exec node. The target runs the same Prepare → steps → Package result path. Published seeds are pulled by digest from the shortest-path holder and verified (directory units use DirDigest). Seeds that exist only as a local path on the submitter are published on the submitter first. Exec nodes have a persistent FIFO queue with default concurrency 1. A `require_nvidia` job (default true) dispatched to a node with no GPU or with exec disabled (including a gateway) must be refused. Worktrees and seeds are stored in separate directories; cleaning a worktree must not delete CAS/packages. Result packages are temporary by default and may be pinned.
+- P3: the full WebUI and version-bound skill product surface. A read-only task board is already available (Tasks / Resources / Nodes, with real disk usage on the node page). The official complete product UI is still later work. Submit, cancel, and clean stay on the CLI.
+- P2 seed-only exception: a job whose only step is `ptc/seed@v0` points at a `kind: Seed` collection. It only fetches, verifies, keeps, and publishes replicas. It does not create a worktree, run commands, or package results. A run record and the persistent queue still apply. Remotes accept the job under the files policy; exec / GPU are not required. Ordinary workflows are still accepted under the exec policy and cannot use this path to bypass execution permission. The bundle must give every seed a unique plan; the target must not resolve the submitter's local paths. See the example in [PREPARE.md](PREPARE.md#seed-only-tasks).
+- P4: SSH single-host install/update, local update, and same-major-version mesh rolling updates (`ptc update --mesh`) are implemented. Official Releases are downloaded and SHA256-verified, with rollback on failure. SSH keeps strict host-key checking and supports Linux amd64/arm64 and Windows amd64. Local self-update works on Linux/macOS; on Windows you must update a different exe that is not currently running. A successful local / mesh update restarts a running daemon (skip with `--no-restart`). Installing as an OS service, and writing `install.json` on the remote during SSH install, are still unimplemented; see [CLI.md](CLI.md).

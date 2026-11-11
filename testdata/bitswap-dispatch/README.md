@@ -1,5 +1,7 @@
 # bitswap dispatch check
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 Dispatches a real CUDA job to the optional `cuda` Ubuntu node. The Prepare
 step references the fake-CUDA SDK seed (`third_party_sdk`, ~2 GiB) by digest
 only, so the exec node must pull it with bitswap from the mesh holders and

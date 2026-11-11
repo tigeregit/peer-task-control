@@ -1,5 +1,7 @@
 # Fake CUDA end-to-end fixture
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 Generates a ~2 GiB third-party SDK blob and a scene of many 200 KiB files totaling ~2 GiB, then runs a stand-in "CUDA" job through `ptc submit` (Prepare → run → Package result). The generated `sdk/` and `scene/` trees are gitignored.
 
 ```text

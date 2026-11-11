@@ -1,5 +1,7 @@
 # Real CUDA vector-add fixture
 
+[English](README.md) | [中文](README.zh-CN.md)
+
 A tiny `vector_add.cu` compiled with `nvcc` inside an official `nvidia/cuda` Ubuntu container. This is not the fake-CUDA Windows e2e.
 
 ```text

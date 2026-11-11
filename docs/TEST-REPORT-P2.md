@@ -1,90 +1,92 @@
-<!-- 路径说明：本文是历史测试记录。当时使用的 docker/docker-compose.yml 现为部署编排；复现跨网段测试请改用 docker/test/，真实 CUDA 节点仍可用 docker/docker-compose.yml 与 docker/docker-compose.cuda.yml。 -->
+<!-- Path note: this is a historical test record. The docker/docker-compose.yml used at the time is now the deploy compose. To reproduce cross-segment tests, use docker/test/. A real CUDA node can still use docker/docker-compose.yml with docker/docker-compose.cuda.yml. -->
 
-# P2 测试报告
+# P2 test report
 
-- 版本：`0.2.0-p2`
-- 时区：Asia/Shanghai (UTC+8)
-- 网格：compose 项目 `ptc-p0`（镜像 `ptc:p0`，gateway + webui sidecar `127.0.0.1:18790`、worker-a、worker-b，均无 GPU），Windows 原生 `host` 节点（`docker/run-host-node.ps1`，真实 RTX 5070，exec 开），以及可选叠加节点 `cuda`（官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04`，`--gpus all`）。
+[English](TEST-REPORT-P2.md) | [中文](zh/TEST-REPORT-P2.md)
 
-## 单元与进程内测试
+- Version: `0.2.0-p2`
+- Time zone: Asia/Shanghai (UTC+8)
+- Mesh: compose project `ptc-p0` (image `ptc:p0`, gateway + webui sidecar `127.0.0.1:18790`, worker-a, worker-b, all without a GPU), a native Windows `host` node (`docker/run-host-node.ps1`, real RTX 5070, exec on), and an optional overlay node `cuda` (official `nvidia/cuda:12.9.2-devel-ubuntu22.04`, `--gpus all`).
 
-在开发机（Linux box）上 `go test ./...` 全部通过，包括：
+## Unit and in-process tests
 
-- `internal/dispatch`：bundle 编解码、目录种子不打进包、超限本地种子改为发布、DirDigest 校验失败、placement 拒绝网关/无 GPU 节点、`auto` 选 host、FIFO 队列与取消、崩溃后 running 作业重新入队。
-- `internal/node.TestDispatchSubmitFixture`：两台进程内节点经探测组网，把 `testdata/submit` 下发到 `worker-b`，作业成功，结果摘要可从提交者 `OpenResource` 取回，运行记录带执行节点和提交者。
-- `internal/node.TestDispatchRequireNVIDIARefused`：`require_nvidia` 作业在目录预检阶段被网关拒绝。
-- `internal/clean`：已 pin 结果包默认不删、`--force` 可删且不误删种子；清工作树不碰 CAS/packages；被运行中作业引用的种子拒绝删除。
-- `internal/config.TestStoragePathsAndEnv`：`PTC_SEEDS_DIR` / `PTC_WORKTREES_DIR` / `PTC_RUNS_DIR` 与默认路径。
-- `internal/disk.TestMeasureRealVolume`：读到真实的 volume total/free（非虚构）。
+`go test ./...` passed in full on the development machine (Linux box), including:
 
-## 协议与行为说明（已实现，见 CLI.md）
+- `internal/dispatch`: bundle encode/decode, directory seeds not packed into the bundle, oversized local seeds switched to publish, DirDigest verification failure, placement refusing a gateway / no-GPU node, `auto` selecting host, FIFO queue and cancel, and re-queue of a running job after a crash.
+- `internal/node.TestDispatchSubmitFixture`: two in-process nodes form a mesh by probing, dispatch `testdata/submit` to `worker-b`, the job succeeds, the result digest can be fetched from the submitter via `OpenResource`, and the run record carries the exec node and the submitter.
+- `internal/node.TestDispatchRequireNVIDIARefused`: a `require_nvidia` job is refused by the gateway at catalog preflight.
+- `internal/clean`: pinned result packages are kept by default, `--force` can delete them without deleting seeds by mistake; cleaning worktrees does not touch CAS/packages; a seed referenced by a running job is refused for deletion.
+- `internal/config.TestStoragePathsAndEnv`: `PTC_SEEDS_DIR` / `PTC_WORKTREES_DIR` / `PTC_RUNS_DIR` and default paths.
+- `internal/disk.TestMeasureRealVolume`: reads a real volume total/free (not a fixture).
 
-- `/ptc/exec/1.0.0` 经受信任 CIDR 门禁和本机 `policy` / `services.exec` 约束。
-- 默认 follow；`--detach` 入队即返回。提交者断开 follow **不会**取消作业，需 `ptc cancel`。
-- 每节点默认并发 1，其余 FIFO 排队；状态 `queued` / `running` / `succeeded` / `failed` / `cancelled` 写入运行记录。任务列表与看板沿用既有 `success` 状态名（成功的作业在 `ptc tasks` / WebUI 显示为 `success`）。
-- 工作树与种子分目录；清工作树不删除 CAS/packages。
+## Protocol and behavior (implemented; see CLI.md)
 
-## 实地网格验证
+- `/ptc/exec/1.0.0` is gated by trusted CIDRs and by the local `policy` / `services.exec`.
+- Follow is the default; `--detach` returns as soon as the job is queued. If the submitter drops follow, the job is **not** cancelled; use `ptc cancel`.
+- Default concurrency per node is 1; the rest wait in a FIFO. Statuses `queued` / `running` / `succeeded` / `failed` / `cancelled` are written into the run record. The task list and the board keep the existing `success` status name (a successful job is shown as `success` in `ptc tasks` / the WebUI).
+- Worktrees and seeds use separate directories; cleaning a worktree does not delete CAS/packages.
 
-记录在下方。默认 live compose 未挂载 mock GPU 或测试夹具。重建 `ptc:p0` 并重启 gateway/worker 时网格会短暂闪断；叠加启动 `cuda` 时其它容器未被重建。
+## Live mesh verification
 
-Skill 文档写法参考了 Anthropic agent skills（frontmatter + 渐进披露）、`gh --json`/`--jq`、kubectl 与 docker CLI（`--detach`、机器可读输出、错误恢复）。
+Recorded below. The default live compose did not mount a mock GPU or test fixtures. Rebuilding `ptc:p0` and restarting gateway/worker caused a brief mesh blip; starting the `cuda` overlay did not rebuild the other containers.
 
-### （a）fake-CUDA e2e：Docker 节点 → Windows `host`（真实 RTX 5070）
+The skill documentation style was informed by Anthropic agent skills (frontmatter + progressive disclosure), `gh --json`/`--jq`, and the kubectl and docker CLIs (`--detach`, machine-readable output, error recovery).
 
-在 `host` 上先把 e2e 种子发布到本机 packages（硬链接，避免把约 4 GiB 种子打进 bundle）：
+### (a) fake-CUDA e2e: Docker node → Windows `host` (real RTX 5070)
 
-- `third_party_sdk` `sha256:dcefeca789cf079dbd1db45f9c3ecaf73bf9f83fa5bd529b8088e1afe7f7a132`（3 files, 2147483748 B）
-- `scene-a` `sha256:137c28921e86b89218b790b4b5577300f991743d98a4d3f048a616f899f753c1`（10485 files, 2147328000 B）
+On `host`, the e2e seeds were first published into local packages (hard-linked, so the ~4 GiB seeds were not packed into the bundle):
+
+- `third_party_sdk` `sha256:dcefeca789cf079dbd1db45f9c3ecaf73bf9f83fa5bd529b8088e1afe7f7a132` (3 files, 2147483748 B)
+- `scene-a` `sha256:137c28921e86b89218b790b4b5577300f991743d98a4d3f048a616f899f753c1` (10485 files, 2147328000 B)
 - `app` `sha256:07973b3a493d8f9a8f015f5d61807f4b7e7ab46891d75221723b832b19166b07`
 
-从 `worker-a` 下发 digest-only prepare（不内联大种子），经中继到 `host`：
+From `worker-a`, a digest-only prepare (no large seeds inlined) was dispatched through the relay to `host`:
 
 ```text
 # on worker-a
 ptc submit --workflow /tmp/e2e/workflow.windows.yaml --target host --fetch-result /tmp/e2e-result
 ```
 
-- 运行记录：`run-20261110T182856Z-test`（开始 2026-11-11 02:28:56 Asia/Shanghai，结束 02:29:12 Asia/Shanghai）
-- 执行节点：`host`；提交者：`worker-a`；状态：`success`
-- 作业日志含 `nvidia-smi NVIDIA GeForce RTX 5070, 12227 MiB`、`hardlink_probe=cam_00000.bin count=4`、`kernel_scan files=41 … elapsed_ms=101`
-- 结果种子：`sha256:76b76c622d209bf5067d74be93cc421838d94f7cd3fb7df40851c1cab69bd266`
-- 提交者取回：5 files / 33556313 bytes；工作树已清理
-- 种子在 `host` 本机 packages 按 DirDigest 校验后物化，未打进 bundle
+- Run record: `run-20261110T182856Z-test` (started 2026-11-11 02:28:56 Asia/Shanghai, ended 02:29:12 Asia/Shanghai)
+- Exec node: `host`; submitter: `worker-a`; status: `success`
+- Job logs included `nvidia-smi NVIDIA GeForce RTX 5070, 12227 MiB`, `hardlink_probe=cam_00000.bin count=4`, `kernel_scan files=41 … elapsed_ms=101`
+- Result seed: `sha256:76b76c622d209bf5067d74be93cc421838d94f7cd3fb7df40851c1cab69bd266`
+- Retrieved by the submitter: 5 files / 33556313 bytes; the worktree was cleaned
+- Seeds were materialized on `host` local packages after DirDigest verification, and were not packed into the bundle
 
-### （b）`require_nvidia` 拒绝
+### (b) `require_nvidia` refusal
 
-从 `worker-a` 用 `testdata/cuda-vectoradd`（`require_nvidia` 默认 true）分别指向无 GPU 节点，预检拒绝（作业未入队）：
+From `worker-a`, `testdata/cuda-vectoradd` (`require_nvidia` default true) was pointed at no-GPU nodes and refused at preflight (the job was not queued):
 
-- `--target gateway`：`refusing to dispatch a require_nvidia job to gateway: it is a relay/gateway or has no NVIDIA GPU (this node has no NVIDIA GPU)`
-- `--target worker-b`：`refusing to dispatch a require_nvidia job to worker-b: this node has no NVIDIA GPU`
+- `--target gateway`: `refusing to dispatch a require_nvidia job to gateway: it is a relay/gateway or has no NVIDIA GPU (this node has no NVIDIA GPU)`
+- `--target worker-b`: `refusing to dispatch a require_nvidia job to worker-b: this node has no NVIDIA GPU`
 
-同一作业随后被 `cuda` 接受并成功（见（d））。
+The same job was later accepted by `cuda` and succeeded (see (d)).
 
-### （c）`testdata/submit` → `worker-b`（Linux，`require_nvidia: false`）
+### (c) `testdata/submit` → `worker-b` (Linux, `require_nvidia: false`)
 
-BusyBox worker 没有 `bash`。首次下发仍写 `run: bash bin/app.sh`，失败：
+The BusyBox worker has no `bash`. The first dispatch still used `run: bash bin/app.sh` and failed:
 
-- `run-20261110T182712Z-test`（2026-11-11 02:27:12 Asia/Shanghai），node=`worker-b`，status=`failure`，日志 `/bin/sh: bash: not found`（exit 127）
+- `run-20261110T182712Z-test` (2026-11-11 02:27:12 Asia/Shanghai), node=`worker-b`, status=`failure`, log `/bin/sh: bash: not found` (exit 127)
 
-将 `testdata/submit/workflow.yaml` 改为 `run: sh bin/app.sh` 后重试成功：
+After `testdata/submit/workflow.yaml` was changed to `run: sh bin/app.sh`, a retry succeeded:
 
 ```text
 # on worker-a
 ptc submit --workflow /tmp/submit/workflow.yaml --target worker-b --fetch-result /tmp/submit-result
 ```
 
-- `run-20261110T182748Z-test`（2026-11-11 02:27:48 Asia/Shanghai），node=`worker-b`，status=`success`
-- 结果种子：`sha256:99bd0ef0b160b32870b81357a533c5b523025a6d5393d54f14b6cc758bcd3026`
-- 提交者取回：4 files / 732 bytes，摘要 `ok scene=scene-a fixture`
+- `run-20261110T182748Z-test` (2026-11-11 02:27:48 Asia/Shanghai), node=`worker-b`, status=`success`
+- Result seed: `sha256:99bd0ef0b160b32870b81357a533c5b523025a6d5393d54f14b6cc758bcd3026`
+- Retrieved by the submitter: 4 files / 732 bytes, summary `ok scene=scene-a fixture`
 
-### （d）真实 CUDA：官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04` 容器节点 `cuda`
+### (d) Real CUDA: official `nvidia/cuda:12.9.2-devel-ubuntu22.04` container node `cuda`
 
-镜像标签均在 Docker Hub 核实，未臆造。
+Image tags were verified on Docker Hub; none were invented.
 
-1. 先试已发布的 `nvidia/cuda:13.5.0-devel-ubuntu22.04`（2026-11-05 推送，digest `sha256:b44fc069…`）。`docker run --rm --gpus all … nvidia-smi` 失败，退出码 125：`nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.5, please update your driver to a newer version, or use an earlier cuda container`。主机驱动为 616.56。未伪造 nvidia-smi，改用更早的已发布标签。
-2. `nvidia/cuda:12.9.2-devel-ubuntu22.04`（digest `sha256:e0203e3a0d3d02b05f4210867b973b7f48997c71bc99b994f2bd350ee60f77a1`）在同一主机上 `docker run --rm --gpus all … nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv` 成功：`NVIDIA GeForce RTX 5070, 12227 MiB, 616.56`。
-3. 叠加启动（未重建已运行的 gateway/worker）：
+1. The already published `nvidia/cuda:13.5.0-devel-ubuntu22.04` was tried first (pushed 2026-11-05, digest `sha256:b44fc069…`). `docker run --rm --gpus all … nvidia-smi` failed with exit 125: `nvidia-container-cli: requirement error: unsatisfied condition: cuda>=13.5, please update your driver to a newer version, or use an earlier cuda container`. The host driver was 616.56. nvidia-smi was not faked; an earlier published tag was used instead.
+2. `nvidia/cuda:12.9.2-devel-ubuntu22.04` (digest `sha256:e0203e3a0d3d02b05f4210867b973b7f48997c71bc99b994f2bd350ee60f77a1`) succeeded on the same host with `docker run --rm --gpus all … nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv`: `NVIDIA GeForce RTX 5070, 12227 MiB, 616.56`.
+3. Overlay start (already running gateway/worker containers were not rebuilt):
 
 ```text
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda
@@ -92,43 +94,43 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml st
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml rm -f cuda
 ```
 
-容器内 `nvidia-smi` 同样看到 RTX 5070 / 12227 MiB / 616.56。`ptc peers show cuda`：linux/amd64，gpu=`NVIDIA GeForce RTX 5070`，exec yes，files yes，relay no，peer `12D3KooWRdN9zg8mU3pNJ8vARg9Xz14Rq8sCBABFLGHkimaJc17x`。
+`nvidia-smi` inside the container also saw RTX 5070 / 12227 MiB / 616.56. `ptc peers show cuda`: linux/amd64, gpu=`NVIDIA GeForce RTX 5070`, exec yes, files yes, relay no, peer `12D3KooWRdN9zg8mU3pNJ8vARg9Xz14Rq8sCBABFLGHkimaJc17x`.
 
-从 `worker-a` 下发真实 nvcc 作业：
+A real nvcc job was dispatched from `worker-a`:
 
 ```text
 # on worker-a
 ptc submit --workflow /tmp/cuda-vectoradd/workflow.yaml --target cuda --fetch-result /tmp/cuda-result
 ```
 
-- `run-20261110T184028Z-test`（2026-11-11 02:40:28 Asia/Shanghai），node=`cuda`，status=`success`，提交者 `worker-a`
-- 源种子（inline）：`sha256:bff04522c1d6eef1f9a76de8040591d4770942241919f935ae22f376b081db41`（10 files, 8894 B）
-- 步骤日志：`NVIDIA GeForce RTX 5070, 12227 MiB, 616.56`；`nvcc` 编译；`ok vector_add n=65536 device=NVIDIA GeForce RTX 5070 cc=12.0`
-- 结果种子：`sha256:f8eeea96bb4780e49c02ab4e2179389e454a8bc37c3415da2569373555da3c5a`
-- 提交者取回：4 files / 914 bytes（`summary.md` / `nvidia-smi.txt` / `run.txt`）；工作树已清理
+- `run-20261110T184028Z-test` (2026-11-11 02:40:28 Asia/Shanghai), node=`cuda`, status=`success`, submitter `worker-a`
+- Source seed (inline): `sha256:bff04522c1d6eef1f9a76de8040591d4770942241919f935ae22f376b081db41` (10 files, 8894 B)
+- Step logs: `NVIDIA GeForce RTX 5070, 12227 MiB, 616.56`; compiled with `nvcc`; `ok vector_add n=65536 device=NVIDIA GeForce RTX 5070 cc=12.0`
+- Result seed: `sha256:f8eeea96bb4780e49c02ab4e2179389e454a8bc37c3415da2569373555da3c5a`
+- Retrieved by the submitter: 4 files / 914 bytes (`summary.md` / `nvidia-smi.txt` / `run.txt`); the worktree was cleaned
 
-这是 Ubuntu 容器内真实 CUDA 执行；与（a）的 Windows 原生 fake-CUDA e2e 互补。
+This was real CUDA execution inside an Ubuntu container, complementary to the native Windows fake-CUDA e2e in (a).
 
-### 看板与磁盘数字
+### Board and disk figures
 
-`ptc tasks`（host）与网关 `GET /api/v1/runs`（WebUI sidecar 同源接口，看板 `http://127.0.0.1:18790` 返回 HTTP 200）列出同一组运行记录：
+`ptc tasks` (host) and gateway `GET /api/v1/runs` (the same API as the WebUI sidecar; the board at `http://127.0.0.1:18790` returned HTTP 200) listed the same run records:
 
-| ID | 状态 | 节点 | 名称 |
+| ID | Status | Node | Name |
 | --- | --- | --- | --- |
 | `run-20261110T184028Z-test` | success | cuda | cuda-vector-add |
 | `run-20261110T182856Z-test` | success | host | fake-cuda-scene-a |
 | `run-20261110T182748Z-test` | success | worker-b | sample-local-job |
 | `run-20261110T182712Z-test` | failure | worker-b | sample-local-job |
 
-实地 `ptc peers show`（非虚构）：
+Live `ptc peers show` (not fixtures):
 
-- `host`：`C:\Users\iamsbb2\Documents\code\peer-task-control\docker\testdata\host-data`（seeds,worktrees,runs）452 GiB free / 953 GiB total（501 GiB used）；ptc seeds 4.0 GiB，worktrees 0 B，outputs 32 MiB，records 7.5 KiB。GPU RTX 5070，12227 MiB，driver 616.56。
-- `cuda`：`/data` 921 GiB free / 1007 GiB total（86 GiB used，Docker Desktop / 已有 WSL2 后端卷）；ptc seeds 9.7 KiB，worktrees 0 B，outputs 914 B，records 5.3 KiB。同一块 RTX 5070。
+- `host`: `C:\Users\iamsbb2\Documents\code\peer-task-control\docker\testdata\host-data` (seeds,worktrees,runs) 452 GiB free / 953 GiB total (501 GiB used); ptc seeds 4.0 GiB, worktrees 0 B, outputs 32 MiB, records 7.5 KiB. GPU RTX 5070, 12227 MiB, driver 616.56.
+- `cuda`: `/data` 921 GiB free / 1007 GiB total (86 GiB used, Docker Desktop / existing WSL2 backend volume); ptc seeds 9.7 KiB, worktrees 0 B, outputs 914 B, records 5.3 KiB. The same RTX 5070.
 
-## 未覆盖 / 限制
+## Uncovered / limits
 
-- 没有 bitswap；大种子整包 tar 下载。
-- `ptc clean` 只作用于本机（无远程 `--node`）。
-- 断开 follow 不取消作业。
-- 运行记录事件流使用 `succeeded`，任务列表/看板成功态仍为 `success`（历史查询语义，未强行统一）。
-- 已发布的 CUDA 13.5 镜像被驱动 616.56 拒绝；叠加层改用已发布的 12.9.2。若某台机器上 `docker run --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` 失败，不要启动该叠加，也不要伪造 nvidia-smi。
+- No Bitswap; large seeds were downloaded as a whole tar.
+- `ptc clean` applies only locally (no remote `--node`).
+- Dropping follow does not cancel the job.
+- Run-record event streams use `succeeded`; the task list / board success state remains `success` (historical query semantics, not forcibly unified).
+- The published CUDA 13.5 image was rejected by driver 616.56; the overlay used the published 12.9.2 instead. If `docker run --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` fails on a machine, do not start that overlay, and do not fake nvidia-smi.

@@ -1,59 +1,61 @@
-# ptc CLI 参考
+# ptc CLI reference
 
-对应开发版本：**0.3.0-dev**。正式构建的版本由 Release 标签写入；以 `ptc version` 和 `ptc --help` 为准。
+[English](CLI.md) | [中文](zh/CLI.md)
 
-在线帮助：
+Applies to development version **0.3.0-dev**. Official builds write the version from the Release tag. `ptc version` and `ptc --help` are authoritative.
+
+Online help:
 
 ```text
 ptc --help
-ptc <命令> --help
+ptc <command> --help
 ```
 
-本文只记录已经实现的接口。尚未实现的命令见文末。
+This document only records interfaces that are already implemented. Commands that are not implemented yet are listed at the end.
 
-## 全局参数
+## Global flags
 
-所有子命令都接受这些参数：
+Every subcommand accepts these flags:
 
-| 参数 | 默认值 | 作用 |
+| Flag | Default | Purpose |
 | --- | --- | --- |
-| `--config` | 数据目录下的 `config.yaml`（见下方「数据目录」） | 配置文件路径。`ptc daemon` **必须**能读到这份文件。 |
-| `--data-dir` | 配置里的 `data_dir`；若配置还不存在，则用默认数据目录 | 覆盖数据目录（身份密钥、`daemon.lock`）。环境变量 `PTC_DATA_DIR`。 |
-| `--seeds-dir` | `storage.seeds_dir`，默认等于 `data_dir` | CAS 与 `packages/` 的父目录。环境变量 `PTC_SEEDS_DIR`。 |
-| `--worktrees-dir` | `storage.worktrees_dir`，默认 `data_dir/worktrees` | 每轮运行的工作树根目录。可设到另一块盘，例如 Windows 的 `D:\ptc\worktrees`。环境变量 `PTC_WORKTREES_DIR`。 |
-| `--runs-dir` | `storage.runs_dir`，默认 `data_dir/runs` | 运行记录和作业队列。环境变量 `PTC_RUNS_DIR`。 |
-| `--api` | 空：从 `daemon.lock` 读取 API 地址 | 直接指定本机控制 API 的 `host:port`，不再读 lock 文件。 |
+| `--config` | `config.yaml` under the data directory (see "Data directory" below) | Path to the config file. `ptc daemon` **must** be able to read this file. |
+| `--data-dir` | `data_dir` in the config; if the config does not exist yet, the default data directory | Overrides the data directory (identity key, `daemon.lock`). Environment variable `PTC_DATA_DIR`. |
+| `--seeds-dir` | `storage.seeds_dir`, defaulting to `data_dir` | Parent of CAS and `packages/`. Environment variable `PTC_SEEDS_DIR`. |
+| `--worktrees-dir` | `storage.worktrees_dir`, default `data_dir/worktrees` | Root of per-run worktrees. May be placed on another volume, for example `D:\ptc\worktrees` on Windows. Environment variable `PTC_WORKTREES_DIR`. |
+| `--runs-dir` | `storage.runs_dir`, default `data_dir/runs` | Run records and the job queue. Environment variable `PTC_RUNS_DIR`. |
+| `--api` | empty: read the API address from `daemon.lock` | Set the local control API `host:port` directly, without reading the lock file. |
 
-`ptc peers`、`ptc policy` 等控制命令不启动 daemon，而是通过本机 loopback API 与已在运行的 daemon 通信。
+Control commands such as `ptc peers` and `ptc policy` do not start the daemon. They talk to an already running daemon through the local loopback API.
 
-查找 API 地址的顺序：
+Order used to find the API address:
 
-1. 若传了 `--api`，使用该地址。
-2. 否则读取 `<data-dir>/daemon.lock` 里的 `api` 字段。
-3. 找不到 lock 文件时退出，并提示 daemon 是否在运行。确定 `--data-dir` 的方式是：显式 `--data-dir`，否则尝试加载 `--config` 并使用其中的 `data_dir`，再否则使用默认数据目录。
+1. If `--api` is passed, use that address.
+2. Otherwise read the `api` field in `<data-dir>/daemon.lock`.
+3. If the lock file is missing, exit and say whether the daemon appears to be running. `--data-dir` is resolved as: an explicit `--data-dir`, otherwise try to load `--config` and use its `data_dir`, otherwise the default data directory.
 
-## 数据目录
+## Data directory
 
-默认数据目录由 `os.UserConfigDir()` 决定：
+The default data directory comes from `os.UserConfigDir()`:
 
-- Windows：`%APPDATA%\ptc`（通常是 `C:\Users\<用户>\AppData\Roaming\ptc`）
-- Linux：`$XDG_CONFIG_HOME/ptc`，未设置时为 `~/.config/ptc`
-- 若拿不到配置目录：`~/.ptc`；再不行则是当前目录下的 `.ptc`
+- Windows: `%APPDATA%\ptc` (typically `C:\Users\<user>\AppData\Roaming\ptc`)
+- Linux: `$XDG_CONFIG_HOME/ptc`, or `~/.config/ptc` if that is unset
+- If no config directory is available: `~/.ptc`; if that also fails, `.ptc` in the current directory
 
-默认约定（可用 `storage.*` 或对应参数改到别的路径，包括另一盘符）：
+Default layout (you can move these with `storage.*` or the matching flags, including to another drive):
 
-| 路径 | 说明 |
+| Path | Description |
 | --- | --- |
-| `config.yaml` | 若使用默认 `--config` 路径，daemon 从这里读配置。 |
-| `identity.key` | 节点 libp2p 身份密钥，首次启动生成（仍在 `data_dir`）。 |
-| `daemon.lock` | daemon 启动时写入，正常退出时删除。含 `pid`、`api`、`peer_id`、`name`。 |
-| `cas/`、`packages/` | 种子与结果包（在 `seeds_dir` 下）。与工作树分离；删除工作树不会删除这里的数据。 |
-| `blocks/` | `seeds_dir` 下持久化的 Bitswap raw SHA256 分块缓存，计入统一做种限额；安全清种时按保留资源的引用回收无用块。 |
-| `worktrees/` | 每次运行物化出的私有工作空间；成功、失败、取消后立即回收。也可用 `ptc clean worktrees` 清理旧目录。 |
-| `.fetch/` | 种子存储中的下载 / bundle 暂存，不在工作树盘；纯做种任务也可使用。 |
-| `runs/` | 运行记录 JSON 与 `runs/queue/` 中的持久作业队列。 |
+| `config.yaml` | If the default `--config` path is used, the daemon reads config from here. |
+| `identity.key` | The node's libp2p identity key, created on first start (still under `data_dir`). |
+| `daemon.lock` | Written when the daemon starts and removed on a clean exit. Contains `pid`, `api`, `peer_id`, `name`. |
+| `cas/`, `packages/` | Seeds and result packages (under `seeds_dir`). Separate from worktrees; deleting a worktree does not delete this data. |
+| `blocks/` | Persistent Bitswap raw SHA256 block cache under `seeds_dir`. Counts toward the shared seeding quota. Unused blocks are reclaimed during a safe seed clean by walking references of retained resources. |
+| `worktrees/` | Private workspace materialized for each run; reclaimed immediately after success, failure, or cancel. Old directories can also be cleaned with `ptc clean worktrees`. |
+| `.fetch/` | Download / bundle staging on the seed volume, not on the worktree volume. Seed-only jobs may use it too. |
+| `runs/` | Run-record JSON and the persistent job queue under `runs/queue/`. |
 
-### 全局存储规则
+### Global storage rules
 
 ```yaml
 storage:
@@ -62,43 +64,43 @@ storage:
   workspace_limit: 0
 ```
 
-`size_limit` 统计 `packages/`（包括 output）、CAS、Bitswap blocks 和 `.fetch/` 的文件字节合计；不是仅统计输入，也不按 output、permanent、temporary 分类豁免。重复存储及硬链接路径按各路径的逻辑大小计量。`GB` 为十进制，也接受 `GiB` 或整数 bytes。省略 `delete_size` 时取上限的一半；要求 `0 < delete_size <= size_limit`。`workspace_limit` 是节点**全部 workspace 合计**，默认 0，不限制。
+`size_limit` sums file bytes of `packages/` (including output), CAS, Bitswap blocks, and `.fetch/`. It is not an inputs-only counter, and there is no exemption by output / permanent / temporary class. Duplicate storage and hard-linked paths are counted by the logical size of each path. `GB` is decimal; `GiB` or an integer byte count are also accepted. When `delete_size` is omitted it is half of the cap; it must satisfy `0 < delete_size <= size_limit`. `workspace_limit` is the **combined size of all workspaces on the node**, default 0 (unlimited).
 
-若做种盘的 free 小于配置上限，实际上限为 `max(0, free - 1GB)`，清理目标为 `delete_size / size_limit * 实际上限`。例如 40GB/20GB、free=11GB，实际为 10GB/5GB。达到上限（或新输入预留空间无法容纳）时，daemon 尝试至少释放该清理目标；没有足够可安全删除的数据时明确报错，不能为了达标删除唯一副本。
+If free space on the seed volume is below the configured cap, the effective cap is `max(0, free - 1GB)`, and the cleanup target is `delete_size / size_limit * effective cap`. For example, 40GB/20GB with free=11GB becomes 10GB/5GB. When the cap is reached (or a new input cannot be reserved), the daemon tries to free at least that cleanup target. If there is not enough data that can be deleted safely, it errors clearly; it must not delete a unique replica just to meet the target.
 
-删除前必须让另一个支持 `/ptc/retention/1.0.0` 的 files 节点完整校验副本，并把保留承诺持久化后回复确认。双方同时清理、断网或 ACK 丢失都不能授权删除最后一份；协商冲突时保守保留，后台带抖动重试。承诺不依赖 TTL；发起方重启后重试释放未完成事务。不要手动删除 `.retention/`、`.retention-lock/`、`.reservations/`、`.quota-lock/`。旧协议节点不能作为安全删除的 keeper；升级须覆盖 daemon 和本机 CLI，不能用旧 CLI 绕过保护。
+Before a delete, another files node that supports `/ptc/retention/1.0.0` must fully verify the replica, persist a retention commitment, and acknowledge it. Simultaneous cleanup on both sides, a network drop, or a lost ACK must not authorize deleting the last copy. On a negotiation conflict, keep the data and retry in the background with jitter. Commitments do not rely on a TTL. After a restart, the initiator retries unfinished release transactions. Do not manually delete `.retention/`, `.retention-lock/`, `.reservations/`, or `.quota-lock/`. A node on the old protocol cannot be a safe-delete keeper. Upgrades must cover both the daemon and the local CLI; an old CLI must not be able to bypass the protection.
 
-`pin`、活跃任务输入及正在写的结果受保护；已完成的 output 与其他普通种子使用同样的自动清理规则。块索引缺失或损坏时保守保留缓存并记录原因。Prepare 在下载前检查全部输入大小及并发预留，输入本身超限直接将 job 标为 failure，不进入下载/清除循环；还会为块缓存、暂存及元数据预留额外空间。纯做种、独立 `resources pull` 和结果发布同样受限。没有 daemon 的本地任务不能协商网络清理，空间不足时直接报错。
+`pin`, inputs of active jobs, and results that are still being written are protected. Finished outputs and other ordinary seeds use the same automatic cleanup rules. If a block index is missing or corrupt, the cache is kept conservatively and the reason is logged. Prepare checks the size of all inputs and concurrent reservations before downloading. If the inputs themselves exceed the cap, the job is marked failure and does not enter a download/cleanup loop. Extra space is also reserved for the block cache, staging, and metadata. Seed-only jobs, standalone `resources pull`, and result publish are subject to the same limits. A local job without a daemon cannot negotiate network cleanup, and errors immediately when space is insufficient.
 
-workspace 必须与实际做种、下载、记录和协调元数据目录分离，不得相同或互相嵌套；符号链接别名也会校验。默认仍可共同位于 `data_dir`，其中 `worktrees/` 与 `cas/`、`packages/` 等是兄弟目录。自定义 `layout.root` 必须严格位于配置的 workspace 根目录下。任务的成功、失败、取消及 Prepare 失败都会在释放执行 slot 前回收 workspace；启动时也会回收终态记录指向的旧 workspace，不删除目录外路径或仍被锁定的工作区。工作区与种子使用私有文件副本，工作区写入不改变做种数据。
+A workspace must be separate from the actual seed, download, record, and coordination-metadata directories. It must not be the same path or nested with them, including after symlink aliases are resolved. The default may still share `data_dir` as a common parent, where `worktrees/` is a sibling of `cas/`, `packages/`, and the rest. A custom `layout.root` must sit strictly under the configured workspace root. Success, failure, cancel, and Prepare failure all reclaim the workspace before the exec slot is released. On startup, workspaces pointed at by terminal run records are also reclaimed, without deleting paths outside the directory or a workspace that is still locked. The workspace and the seeds use private file copies; writes in the workspace do not change seeded data.
 
-运行时 workspace 每约 250ms 检查一次，做种空间每约 1s 检查一次，并在步骤边界复查；超限取消进程树并将 job 标为 failure。监控中的网络清理请求带 3 秒期限，网络协商及文件系统遍历可能延长检查间隔。这是应用层配额，不是文件系统硬配额，写入可能在检查间隔内短暂超过阈值。唯一或受保护资源仍保留并报告容量不足。`--keep-worktree` 对执行任务报错；旧 YAML 的 `cleanup.when/evict_worktree` 不再允许保留终态 workspace。运行记录和队列历史不在本规则中自动删除。
+At runtime the workspace is checked about every 250ms, seed space about every 1s, and again at step boundaries. Crossing the limit cancels the process tree and marks the job as failure. Network cleanup requests made during monitoring have a 3-second deadline; network negotiation and filesystem walks may stretch the check interval. This is an application quota, not a hard filesystem quota, so writes may briefly exceed the threshold between checks. Unique or protected resources are still kept, and a capacity-short error is reported. `--keep-worktree` errors on exec jobs. `cleanup.when/evict_worktree` in older YAML no longer allows a terminal workspace to be kept. Run records and queue history are not deleted automatically by these rules.
 
-## 退出码
+## Exit codes
 
-- `0`：成功（`ptc daemon` 在收到 `SIGINT` / `SIGTERM` 后正常退出也是 `0`）。
-- `1`：错误。包括工作流校验失败、本机/远端执行失败、目标不存在、`require_nvidia` 作业被派到无 GPU / exec 关闭 / 网关而被拒绝、策略拒绝、队列已满、清理缺少 `--yes`、以及与 daemon 通信失败。错误信息写到 stderr（`--json` 时关键字段也在 JSON 里）。
-- `1`：命令失败。错误写到 stderr。
+- `0`: success (`ptc daemon` also exits `0` after a clean `SIGINT` / `SIGTERM`).
+- `1`: error. This includes workflow validation failure, local/remote execution failure, a missing target, a `require_nvidia` job refused because it was sent to a no-GPU / exec-disabled / gateway node, a policy refusal, a full queue, clean without `--yes`, and failure to talk to the daemon. The error is written to stderr (with `--json`, key fields are also in the JSON).
+- `1`: the command failed. The error is written to stderr.
 
-## 命令
+## Commands
 
 ### `ptc version`
 
-打印二进制版本（开发构建为 `0.3.0-dev`，Release 构建为标签去掉 `v`），后接换行。不需要配置或正在运行的 daemon。
+Prints the binary version (development builds are `0.3.0-dev`; Release builds are the tag without `v`), followed by a newline. No config or running daemon is required.
 
 ### `ptc skill print [topic]` / `ptc skill list`
 
-打印与当前二进制绑定的 agent skill。`ptc skill print` 输出索引；`ptc skill print <topic>` 输出指定主题（`submit`、`resources`、`install`、`discovery`、`storage`、`errors`）；`ptc skill list` 列出主题，可加 `--json`。
+Prints the agent skill bound to the current binary. `ptc skill print` prints the index; `ptc skill print <topic>` prints a topic (`submit`, `resources`, `install`, `discovery`, `storage`, `errors`); `ptc skill list` lists topics and accepts `--json`.
 
-正文始终来自编译进二进制的内嵌文本，并在 `print` 末尾追加一行 `# bound-to-version <版本>`。不再读取当前目录或旧安装残留的 `SKILL.md`，避免更新后 usage 与实际二进制能力不一致。仓库根目录 `SKILL.md` 必须与 `cmd/ptc/skill/SKILL.md` 保持一致。
+The body always comes from text compiled into the binary, and `print` appends a final line `# bound-to-version <version>`. A leftover `SKILL.md` in the current directory or an old install is not read, so usage cannot drift from the actual binary after an update. The repository-root `SKILL.md` must stay identical to `cmd/ptc/skill/SKILL.md`.
 
-不需要正在运行的 daemon。
+A running daemon is not required.
 
 ### `ptc install --ssh HOST` / `ptc update [--ssh HOST|--mesh]`
 
-从官方 `tigeregit/peer-task-control` Release 下载对应平台的二进制及 `SHA256SUMS`，校验后替换，失败时回滚。`install` 与 SSH / 本机 `update` 无需 daemon。这些命令**不安装系统服务**。本机 `ptc update` 成功后会写入 `install.json`，并重启正在运行的本机 daemon（可用 `--no-restart` 跳过）。`--mesh` 需要本机 daemon，向已有 `install.json` 且 `update.accept_remote` 为开的节点分阶段推送同一主版本；目标节点用 bitswap 拉取二进制、校验、替换并请求重启。SSH 安装目前只替换远端二进制，不会写入 `install.json`，因此不会自动成为 mesh 更新目标。
+Downloads the platform binary and `SHA256SUMS` from official `tigeregit/peer-task-control` Releases, verifies, then replaces, rolling back on failure. `install` and SSH / local `update` do not need a daemon. These commands **do not install an OS service**. A successful local `ptc update` writes `install.json` and restarts a running local daemon (skip with `--no-restart`). `--mesh` needs the local daemon. It pushes the same major version in stages to nodes that already have `install.json` and have `update.accept_remote` on. The target pulls the binary with Bitswap, verifies, replaces, and requests a restart. SSH install currently only replaces the remote binary and does not write `install.json`, so the host does not automatically become a mesh-update target.
 
-mesh 更新和手工 daemon 重启要求目标没有排队或运行中的任务；更新/重启期间拒绝新任务。mesh 更新只有在目标重新通告新版本后才算成功；未重入会标为失败并停止后续批次。`--json` 仍输出单个报告，但出现失败时命令退出码非零。`install.json` 必须指向该 daemon 正在运行的二进制。
+Mesh updates and a manual daemon restart require the target to have no queued or running jobs; new jobs are refused during the update/restart. A mesh update counts as success only after the target re-announces the new version. If it does not rejoin, the update is marked failed and later batches stop. `--json` still prints a single report, but the command exits non-zero if any failure occurred. `install.json` must point at the binary that daemon is actually running.
 
 ```text
 ptc install --ssh user@linux-node --version 0.2.0-p2
@@ -113,54 +115,54 @@ ptc update --mesh --dry-run --json
 ptc update --mesh --nodes worker-a,worker-b --batch 1
 ```
 
-| 参数 | 默认值 | 作用 |
+| Flag | Default | Purpose |
 | --- | --- | --- |
-| `--ssh HOST` | 空 | install 必需；update 省略时更新本机。接受 OpenSSH alias、主机名、地址或 `user@host`。 |
-| `--version` | `latest` | 最新稳定 Release；预发布版须显式指定标签版本。 |
-| `--path` | 见下文 | 本机目标，或 SSH 目标上的绝对文件路径。 |
-| `--identity` | OpenSSH 默认 | SSH 私钥文件；加密私钥建议通过 ssh-agent 使用。 |
-| `--known-hosts` | OpenSSH 默认 | 替代 known_hosts 文件；不会关闭校验。 |
-| `--port` / `-p` | `22` | SSH 端口。 |
-| `--mesh` | 关 | 由本机 daemon 向可管理节点滚动升级；不能与 `--ssh` 同时使用。 |
-| `--nodes` | 全部可管理节点 | 仅这些节点名或 peer ID。 |
-| `--batch` | `1` | 每阶段并行更新的节点数；上一阶段须重新加入目录后才进入下一阶段。 |
-| `--assets-dir` | 空 | 含各平台二进制和 `SHA256SUMS` 的本地目录，供离线网格使用。 |
-| `--dry-run` | 关 | 只打印 mesh 计划，不改节点。 |
-| `--json` | 关 | 仅 `--mesh`：打印 JSON。 |
-| `--no-restart` | 关 | 本机更新后不重启本机 daemon。 |
+| `--ssh HOST` | empty | Required for install; if omitted on update, the local machine is updated. Accepts an OpenSSH alias, a hostname, an address, or `user@host`. |
+| `--version` | `latest` | Latest stable Release; a pre-release must be given as an explicit tag version. |
+| `--path` | see below | Local target, or an absolute file path on the SSH target. |
+| `--identity` | OpenSSH default | SSH private-key file. Encrypted keys should be used through ssh-agent. |
+| `--known-hosts` | OpenSSH default | Alternate known_hosts file; verification is never turned off. |
+| `--port` / `-p` | `22` | SSH port. |
+| `--mesh` | off | Rolling update of manageable nodes, driven by the local daemon. Cannot be combined with `--ssh`. |
+| `--nodes` | all manageable nodes | Only these node names or peer IDs. |
+| `--batch` | `1` | How many nodes to update in parallel per stage. The previous stage must have rejoined the catalog before the next stage starts. |
+| `--assets-dir` | empty | A local directory containing per-platform binaries and `SHA256SUMS`, for an offline mesh. |
+| `--dry-run` | off | Print the mesh plan only; do not change nodes. |
+| `--json` | off | `--mesh` only: print JSON. |
+| `--no-restart` | off | After a local update, do not restart the local daemon. |
 
-SSH 自动探测 Linux amd64/arm64 或原生 Windows amd64；macOS SSH、Windows ARM64、UNC 路径不支持。Linux 默认安装到 `$HOME/.local/bin/ptc`，Windows 为 `%LOCALAPPDATA%\Programs\ptc\ptc.exe`。Windows 通过本机 OpenSSH `scp` 上传二进制和替换脚本，再以短编码 PowerShell 命令启动，避免默认 cmd.exe 的命令长度限制及 Windows SSH 二进制 stdin 问题；因此发起端还须有 `scp`，目标须提供 SFTP。检查 SHA256 和版本，更新时保留原目标 ACL，清理临时部署目录；目标被运行中的进程锁定时会报错。
+SSH auto-detects Linux amd64/arm64 or native Windows amd64. macOS SSH, Windows ARM64, and UNC paths are not supported. The default install path is `$HOME/.local/bin/ptc` on Linux and `%LOCALAPPDATA%\Programs\ptc\ptc.exe` on Windows. On Windows the initiator uploads the binary and a replace script with the host OpenSSH `scp`, then starts a short encoded PowerShell command, to avoid the default cmd.exe command-length limit and Windows SSH binary stdin issues. The initiator therefore also needs `scp`, and the target must provide SFTP. SHA256 and the version are checked. An update keeps the original target ACL and cleans the temporary deploy directory. An error is reported if the target is locked by a running process.
 
-SSH 必须已配置非交互认证，且 known_hosts 已信任目标；使用 `BatchMode=yes` 和 `StrictHostKeyChecking=yes`，不接受密码提示或未知主机密钥。下载发生在发起命令的本机，使用正常 HTTPS 代理环境。
+SSH must already have non-interactive authentication configured, and the target must already be trusted in known_hosts. The commands use `BatchMode=yes` and `StrictHostKeyChecking=yes`, and do not accept a password prompt or an unknown host key. Downloads happen on the machine that runs the command, using the normal HTTPS proxy environment.
 
-本机 update 支持 Linux/macOS 自更新。Windows 不能覆盖当前运行的 exe，须从另一个副本执行并用 `--path` 指定未运行的已安装 PTC。显式本机目标必须存在且通过 `ptc version` 探测。SSH 专用的 identity/known-hosts/port 参数不能用于本机模式。
+Local update supports Linux/macOS self-update. Windows cannot overwrite the currently running exe; you must run a different copy and point `--path` at an installed PTC that is not running. An explicit local target must exist and be detectable with `ptc version`. SSH-only identity/known-hosts/port flags cannot be used in local mode.
 
-`--dry-run`、`--json`、`--assets-dir`、`--nodes`、`--batch` 只能与 `--mesh` 一起用。
+`--dry-run`, `--json`, `--assets-dir`, `--nodes`, and `--batch` can only be used with `--mesh`.
 
-`--mesh` 默认把本机二进制的版本推到网格（也可 `--version` / `latest`）。目标只接受受信对端、同一主版本且不低于当前版本的更新。二进制先进入发起节点的 CAS，再由目标用 bitswap 拉取；不要把它理解成各节点各自访问 GitHub。节点需已有 `data_dir/install.json`（本机 `ptc update` 会写这份清单）。`ptc policy update off` 会把 `update.accept_remote` 设为 false，拒绝远端推送（默认允许）。
+`--mesh` defaults to pushing the local binary's version to the mesh (or `--version` / `latest`). A target only accepts an update from a trusted peer, at the same major version, and not older than its current version. The binary first enters CAS on the initiating node, then the target pulls it with Bitswap. This is not each node fetching from GitHub on its own. Nodes need an existing `data_dir/install.json` (local `ptc update` writes this manifest). `ptc policy update off` sets `update.accept_remote` to false and refuses remote pushes (allowed by default).
 
 ### `ptc daemon`
 
-启动 daemon，加入组网，并在本机打开控制 API。前台运行，日志和提示写到 stderr。
+Starts the daemon, joins the mesh, and opens the local control API. It runs in the foreground. Logs and prompts go to stderr.
 
 ```text
 ptc daemon --config config.yaml
 ptc daemon --config config.yaml --data-dir D:\ptc-data
 ```
 
-行为要点：
+Behavior:
 
-- 必须能打开 `--config` 指向的文件；文件不存在时会提示先复制 `config.example.yaml` 并填写 `trusted_cidrs`。
-- `--data-dir` 会覆盖配置里的 `data_dir`。
-- 监听组网端口（默认 `0.0.0.0:18765`）和本机 API（默认 `127.0.0.1:18780`）。
-- 控制 API 只接受 loopback 来源。
-- 同网段用 mDNS 和启动时的端口探测发现邻居；`services.relay: true` 的网关扫描全部受信任网段并推送目录。默认只在启动时扫描一次，后续被动接收发现/连接；需要周期探测时显式配置正数 `scan_interval`。
-- 经 NAT 或 Docker 端口映射访问网关时，应同时映射组网端口的 TCP 和 UDP。节点与网关重连后会立即重新预约中继；预约失败会记录警告。
-- 目录中的 loopback 地址属于公布地址的节点，不会被其他节点当作直连地址。同机运行多个节点时，可以用 `scan_hosts` 显式指定各自的 `127.0.0.1:端口`。
-- 配置里**不要**填写邻居名单。
-- 启动成功后 stderr 会打印节点名、peer ID 和 API 地址，并提示随后使用 `ptc peers`。
-- 用 Ctrl+C 或 SIGTERM 停止。
-- 本机 `ptc update` 或 mesh 更新替换二进制后，daemon 会按请求重启（Unix 用 exec 保持同一 PID；Windows 先拉起新进程再退出，并用隐藏的 `--wait-pid` 等待旧进程释放端口）。
+- The file pointed at by `--config` must be openable. If it is missing, the command tells you to copy `config.example.yaml` and fill in `trusted_cidrs`.
+- `--data-dir` overrides `data_dir` in the config.
+- It listens on the mesh port (default `0.0.0.0:18765`) and the local API (default `127.0.0.1:18780`).
+- The control API only accepts loopback sources.
+- Same-segment discovery uses mDNS and a start-up port probe. A gateway with `services.relay: true` scans every trusted segment and pushes the catalog. By default it scans once at start and then discovers/connects passively. Set a positive `scan_interval` when you need periodic probes.
+- When the gateway is reached through NAT or a Docker port mapping, map both TCP and UDP on the mesh port. After a node reconnects to the gateway it immediately re-reserves the relay; a failed reservation is logged as a warning.
+- Loopback addresses in the catalog belong to the node that advertised them and are not used by other nodes as a direct dial address. When several nodes run on the same host, list each `127.0.0.1:port` explicitly in `scan_hosts`.
+- **Do not** put a neighbor list in the config.
+- After a successful start, stderr prints the node name, peer ID, and API address, and suggests using `ptc peers` next.
+- Stop with Ctrl+C or SIGTERM.
+- After a local `ptc update` or a mesh update replaces the binary, the daemon restarts on request (Unix uses exec and keeps the same PID; Windows starts the new process first, then exits, and uses a hidden `--wait-pid` to wait until the old process releases the port).
 
 ### `ptc scan`
 
@@ -170,22 +172,22 @@ ptc scan --node gateway
 ptc scan --node <relay-peer-id> --json
 ```
 
-省略 `--node` 时请求本机 daemon 扫描一次；本机为 relay 时扫描全部 `trusted_cidrs`，否则只扫描本机受信任网段。配置的 `scan_hosts` 仍会一并探测。指定 `--node` 时经本机 daemon 向已知 relay 发出 `/ptc/scan/1.0.0` 请求；目标必须开启 relay，且允许调用者通过 allow/deny 策略检查。不向未知节点猜测连接地址，也不支持旧 daemon 自动回退扫描。
+Without `--node`, the local daemon is asked to scan once. A local relay scans every `trusted_cidrs` entry; otherwise only the host's own trusted segments are scanned. Configured `scan_hosts` are still probed. With `--node`, the local daemon sends a `/ptc/scan/1.0.0` request to a known relay. The target must have relay on, and the caller must pass the allow/deny policy check. The command does not guess a dial address for an unknown node, and it does not automatically fall back to scanning on an old daemon.
 
 ```yaml
 scan_interval: 0s
 scan_min_interval: 60s
 ```
 
-`scan_interval` 省略或为 `0s` 表示无限周期：启动时仅扫描一次，之后不会自行重复扫描。改成 `5m` 等正数后，每次扫描结束再等待该周期；手动扫描不会启用原本关闭的周期任务。修改策略本身不触发扫描。原配置若明确写有 `30s`，升级后仍按 30 秒周期执行。mDNS、入站连接和已建立连接上的目录/中继维护不因关闭周期探测而停用。
+Omitting `scan_interval`, or setting it to `0s`, means an infinite period: scan once at start and do not repeat on a timer. After you set a positive duration such as `5m`, each scan waits that long after it finishes. A manual scan does not enable a periodic task that was turned off. Changing policy itself does not trigger a scan. If an existing config explicitly had `30s`, it still runs on a 30-second period after an upgrade. mDNS, inbound connections, and catalog/relay maintenance on established connections stay enabled when periodic probing is off.
 
-`scan_min_interval` 是**目标节点全部手动请求共用**的最小接受间隔，默认 60 秒；本机 CLI、所有远端 peer 都共用一个额度。扫描已排队/运行时立即拒绝；冷却期内立即拒绝，不排队补跑，也不因拒绝延长冷却。启动和周期扫描不消耗手动额度，但进行中仍阻止重复手动扫描。额度在 daemon 重启后重置。
+`scan_min_interval` is the minimum accepted interval **shared by every manual request on the target node**, default 60 seconds. The local CLI and all remote peers share one budget. A request is refused immediately if a scan is already queued or running, and refused immediately during cooldown. Refusals are not queued to run later, and a refusal does not extend the cooldown. Start-up and periodic scans do not consume the manual budget, but an in-progress scan still blocks a duplicate manual scan. The budget resets when the daemon restarts.
 
-成功仅表示已接受排队，不表示扫描已经完成。`--json` 输出 `node`、`peer_id`、`status`，拒绝时包含 `error` 和适用的 `retry_after_seconds`，命令退出码非零。HTTP 接受返回 202，忙返回 409，限频返回 429 并带 `Retry-After`，策略/非 relay 拒绝返回 403；本地 API 转发到远端时保留这些状态。
+Success only means the scan was accepted and queued, not that it has finished. `--json` prints `node`, `peer_id`, and `status`. A refusal includes `error` and, when applicable, `retry_after_seconds`, and the command exits non-zero. HTTP 202 means accepted, 409 means busy, 429 means rate-limited with `Retry-After`, and 403 means a policy / non-relay refusal. The local API preserves these statuses when it forwards to a remote.
 
 ### `ptc peers`
 
-列出本机 daemon 已知的节点及其服务。需要 daemon 已在运行。
+Lists nodes known to the local daemon and their services. The daemon must already be running.
 
 ```text
 ptc peers
@@ -196,33 +198,33 @@ ptc peers --data-dir D:\ptc-data
 ptc peers --api 127.0.0.1:18780
 ```
 
-| 参数 | 默认 | 作用 |
+| Flag | Default | Purpose |
 | --- | --- | --- |
-| `--json` | 关闭 | 向 stdout 打印缩进 JSON，而不是表格。 |
+| `--json` | off | Print indented JSON to stdout instead of a table. |
 
-`ptc peers show NAME|PEER` 查看一台设备的硬件信息（系统、GPU、显存、驱动、地址、服务）、该节点的历史任务，以及它存储的种子。与 WebUI 节点详情页使用同一套数据：`GET /api/v1/status`、`/api/v1/runs`、`/api/v1/resources`，再用与看板相同的节点过滤语义组合。`--json` 同样适用于 `show`。
+`ptc peers show NAME|PEER` shows one host's hardware (OS, GPU, VRAM, driver, addresses, services), that node's historical tasks, and the seeds it stores. It uses the same data as the WebUI node detail page: `GET /api/v1/status`, `/api/v1/runs`, `/api/v1/resources`, then the same node-filter semantics as the board. `--json` also applies to `show`.
 
-默认输出第一行是本机信息，随后是制表符分隔的表格：
+The default output starts with a local-info line, then a tab-separated table:
 
 ```text
-local <名称>  peer <peer ID>  version <版本>
+local <name>  peer <peer ID>  version <version>
 
 NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 ```
 
-`PEER ID` 列超过 16 个字符时截断并加省略号。服务列的取值：
+The `PEER ID` column is truncated with an ellipsis when it is longer than 16 characters. Service column values:
 
-| 单元格 | 含义 |
+| Cell | Meaning |
 | --- | --- |
-| `yes` | 该服务当前对外提供（`offered: true`） |
-| `no (<原因>)` | 不提供，并带拒绝原因 |
-| `no (disabled)` | 本机关闭了该功能，且没有更具体的原因 |
-| `no` | 不提供，无原因 |
-| `-` | 目录条目里没有该项服务 |
+| `yes` | The service is currently offered (`offered: true`) |
+| `no (<reason>)` | Not offered, with a refusal reason |
+| `no (disabled)` | This host turned the feature off, and there is no more specific reason |
+| `no` | Not offered, no reason |
+| `-` | The catalog entry has no such service |
 
-关闭了部分服务的节点仍会出现在目录中，只是对应列会标明原因。例如没有 NVIDIA GPU 的网关，`EXEC` 可能是 `no (this node has no NVIDIA GPU)`。
+A node that has turned some services off still appears in the catalog; the corresponding column just states the reason. For a gateway with no NVIDIA GPU, `EXEC` may be `no (this node has no NVIDIA GPU)`.
 
-`--json` 输出的是控制 API 的状态对象，不只是邻居列表，字段如下：
+`--json` prints the control API status object, not only the neighbor list. Fields:
 
 ```json
 {
@@ -254,17 +256,17 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 }
 ```
 
-`services.*.enabled` 是该节点自己的功能开关；`offered` 是目录里实际对外宣称可提供（例如 `exec` 还要求本机检测与 NVIDIA GPU）。`caps` 中未探测到的字段可能为空或为零值。上面的示例值仅说明结构，运行时以实际输出为准。
+`services.*.enabled` is that node's own feature switch. `offered` is what the catalog actually advertises (for example `exec` also requires a local probe and an NVIDIA GPU). Fields in `caps` that were not probed may be empty or zero. The sample values above only illustrate the shape; runtime output is authoritative.
 
 ### `ptc webui`
 
-在本机打开只读任务看板，默认监听 `127.0.0.1:18790`。界面为中英双语（可切换），风格接近 agentboard：顶栏、统计卡片、任务列表。点击一条任务可查看类似 GitHub Actions 的运行摘要：状态、触发方式、耗时、作业与步骤、正在运行的步骤，以及日志摘要。
+Opens the local read-only task board, listening on `127.0.0.1:18790` by default. The UI is bilingual (Chinese / English, switchable) and is styled close to agentboard: a top bar, stat cards, and a task list. Clicking a task opens a GitHub Actions-like run summary: status, how it was triggered, duration, jobs and steps, the step that is running, and a log summary.
 
-看板会持续显示一条实时任务「网格目录监视 / Mesh catalog watch」，并汇总本机 `--tasks` / `--runs` 以及网格里其他节点公开的运行记录（守护进程 `GET /api/v1/runs` 会向邻居拉取 `/ptc/runs/1.0.0`）。任务和资源列表都支持搜索、状态/类型筛选和排序。顶栏还有「资源」分栏：列出全网种子的 digest、bitswap 传输 CID、大小、所在节点数、创建时间，以及到当前设备（看板所连接的 daemon）的最短中转次数，并支持下载。列表可按列头升序或降序排序；digest 去掉 `sha256:` 前缀，默认只显示哈希前 8 位加 `***`，点眼睛按钮可展开。任务摘要里的结果种子可点进对应资源页。点击「节点」里的某一台设备，可查看硬件信息、历史任务和该节点存储的种子；再点具体任务或种子会跳到对应分栏。CLI 与看板共用同一套本机控制接口和查询语义（`internal/query`）。看板是只读界面：任务 / 资源 / 节点的查看、筛选、排序、搜索和种子下载都可以在 CLI 里用同样的参数完成（`ptc tasks`、`ptc resources`、`ptc peers` / `peers show`）。CLI 额外提供控制能力，看板不会代理这些写操作：`ptc daemon`、`ptc policy`（改白名单 / 黑名单 / 服务开关）、`ptc submit`（本机或 `--target` 下发）、`ptc cancel`、`ptc clean`，以及 `ptc resources show --list-files`（展开超过 100 个文件的目录树）。看板会列出邻居执行完的作业（包括 CUDA），但不能提交或取消。
+The board always shows a live task "网格目录监视 / Mesh catalog watch", and it merges local `--tasks` / `--runs` with run records published by other nodes on the mesh (the daemon's `GET /api/v1/runs` pulls `/ptc/runs/1.0.0` from neighbors). Task and resource lists support search, status/type filters, and sorting. The top bar also has a Resources pane: it lists mesh-wide seeds with digest, Bitswap transport CID, size, replica count, created time, and the shortest hop count to the current device (the daemon the board is attached to), and it supports download. The list can be sorted ascending or descending by column header. The digest drops the `sha256:` prefix and by default shows the first 8 hash characters plus `***`; click the eye button to expand it. A result seed in a task summary can be opened on the matching resource page. Clicking a device under Nodes shows hardware, historical tasks, and seeds stored on that node; clicking a task or seed jumps to the matching pane. The CLI and the board share the same local control API and query semantics (`internal/query`). The board is read-only: viewing, filtering, sorting, searching, and seed download for tasks / resources / nodes can all be done from the CLI with the same flags (`ptc tasks`, `ptc resources`, `ptc peers` / `peers show`). The CLI also provides control operations that the board will not proxy: `ptc daemon`, `ptc policy` (allow / deny lists and service switches), `ptc submit` (local or `--target` dispatch), `ptc cancel`, `ptc clean`, and `ptc resources show --list-files` (expand a directory tree with more than 100 files). The board lists jobs that neighbors have finished (including CUDA) but cannot submit or cancel them.
 
-Docker 部署编排默认启动 `gateway`（中转 + 文件，无 GPU）、`files`（只做种）和只读 `webui`。还可以在 Windows 本机启动原生 `host` 节点（真实 NVIDIA GPU）：先保证部署网格已 `up`，再在仓库根目录运行 `powershell -File docker/run-host-node.ps1`。网关通过 `scan_hosts: host.docker.internal` 探测本机 `18765` 端口。停止用 `powershell -File docker/run-host-node.ps1 -Stop`。若要加入 P0-C 测试网格，使用 `powershell -File docker/run-host-node.ps1 -TestMesh`。
+The default Docker deploy compose starts `gateway` (relay + files, no GPU), `files` (seeding only), and a read-only `webui`. You can also start a native `host` node on a Windows machine (real NVIDIA GPU): make sure the deploy mesh is already `up`, then from the repository root run `powershell -File docker/run-host-node.ps1`. The gateway probes the host's `18765` port via `scan_hosts: host.docker.internal`. Stop it with `powershell -File docker/run-host-node.ps1 -Stop`. To join the P0-C test mesh, use `powershell -File docker/run-host-node.ps1 -TestMesh`.
 
-可选的 Ubuntu CUDA 执行节点不要写进默认部署编排。在已有 NVIDIA Container Toolkit / Docker Desktop GPU 直通的机器上，用叠加文件启动官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04` 节点（名为 `cuda`，exec+files，无中继，GPU 以容器内 `nvidia-smi` 为准）：
+An optional Ubuntu CUDA exec node should not be written into the default deploy compose. On a machine that already has NVIDIA Container Toolkit / Docker Desktop GPU passthrough, start the official `nvidia/cuda:12.9.2-devel-ubuntu22.04` node with the overlay (named `cuda`, exec+files, no relay; the GPU is whatever `nvidia-smi` inside the container reports):
 
 ```text
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda
@@ -272,31 +274,30 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml st
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml rm -f cuda
 ```
 
-先确认 `docker run --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` 能看到真实 GPU。本仓库在驱动 616.56 上试过同样已发布的 `13.5.0-devel-ubuntu22.04`，被 `nvidia-container-cli` 以 `cuda>=13.5` 拒绝，因此叠加层使用 12.9.2。示例作业：`ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda`。完整部署说明见 [docker/README.md](../docker/README.md)。
-
+First confirm that `docker run --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` sees a real GPU. This repository tried the equally published `13.5.0-devel-ubuntu22.04` on driver 616.56, and `nvidia-container-cli` refused it with `cuda>=13.5`, so the overlay uses 12.9.2. Sample job: `ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda`. Full deploy notes are in [docker/README.md](../docker/README.md).
 
 ```text
 ptc webui
 ptc webui --listen 127.0.0.1:18790 --api 127.0.0.1:18780
 ```
 
-| 参数 | 默认值 | 作用 |
+| Flag | Default | Purpose |
 | --- | --- | --- |
-| `--listen` | `127.0.0.1:18790` | 看板监听地址。Docker 模拟里会改成 `0.0.0.0:18790`，并映射到主机的 `127.0.0.1:18790`。 |
-| `--tasks` | 空 | 可选的已记录任务 JSON（`{"tasks":[...]}`）。 |
-| `--report` | 空 | `--tasks` 的兼容别名。 |
-| `--runs` | 空 | 本机 `runs/*.json` 目录；网格记录仍由 daemon 的 `/api/v1/runs` 合并进来。 |
+| `--listen` | `127.0.0.1:18790` | Board listen address. In the Docker simulation this is changed to `0.0.0.0:18790` and mapped to the host's `127.0.0.1:18790`. |
+| `--tasks` | empty | Optional recorded-task JSON (`{"tasks":[...]}`). |
+| `--report` | empty | Compatibility alias for `--tasks`. |
+| `--runs` | empty | Directory of local `runs/*.json`. Mesh records are still merged in by the daemon's `/api/v1/runs`. |
 
-相关接口：`GET /`、`GET /live/tasks`、`GET /live/status`、`GET /live/resources`、`GET /live/resources/sha256/{hex}`、`GET /live/resources/sha256/{hex}/content`、`GET /live/meta`。`GET /live/report` 会重定向到 `/live/tasks`。
+Related endpoints: `GET /`, `GET /live/tasks`, `GET /live/status`, `GET /live/resources`, `GET /live/resources/sha256/{hex}`, `GET /live/resources/sha256/{hex}/content`, `GET /live/meta`. `GET /live/report` redirects to `/live/tasks`.
 
-部署编排和跨网段测试都会把看板映射到主机的 `http://127.0.0.1:18790`。默认部署 compose 不会挂载录制的测试任务，也不会给容器节点伪装 GPU；节点硬件以 daemon 探测到的真实信息为准。需要跑官方 P0-C 角色断言时，使用 `docker/test/docker-compose.yml` 并加上 `-f docker/test/docker-compose.p0-test.yml`（不要和正在使用的真实看板或部署编排叠在一起）。
+Both the deploy compose and the cross-segment tests map the board to the host at `http://127.0.0.1:18790`. The default deploy compose does not mount recorded test tasks and does not fake a GPU on container nodes. Node hardware is whatever the daemon actually probes. To run the official P0-C role assertions, use `docker/test/docker-compose.yml` plus `-f docker/test/docker-compose.p0-test.yml` (do not stack that on a live board or a deploy compose you are actually using).
 
 
 ### `ptc resources`
 
-列出全网内容种子、查看某个种子、下载内容，或把副本拉取并保存在本机仓库。与 WebUI 资源分栏共用 `GET /api/v1/resources`（daemon 会向邻居拉取 `/ptc/resources/1.0.0`，并计算从当前节点到各副本的中转次数：直连为 0，经过一层电路中继为 1）。需要 daemon 已在运行。Prepare 步骤会把依赖种子登记到 packages 或 CAS，因此输入数据会和结果种子一起出现在清单里；workspace 使用独立副本，修改和回收工作区不会污染做种数据。
+Lists content seeds across the mesh, shows one seed, downloads its content, or pulls a replica into the local store. It shares `GET /api/v1/resources` with the WebUI Resources pane (the daemon pulls `/ptc/resources/1.0.0` from neighbors and computes hop counts from the current node to each replica: 0 for a direct connection, 1 through one circuit relay). The daemon must already be running. The Prepare step registers dependency seeds into packages or CAS, so input data appears in the inventory together with result seeds. The workspace uses a separate copy; modifying or reclaiming a workspace does not pollute seeded data.
 
-不带子命令时等同于 `ptc resources` 列表。
+With no subcommand, this is the `ptc resources` list.
 
 ```text
 ptc resources
@@ -309,37 +310,37 @@ ptc resources pull sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d
 ptc resources pull sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8 --json
 ```
 
-| 子命令 | 作用 |
+| Subcommand | Purpose |
 | --- | --- |
-| （默认） | 列出种子：digest、bitswap 传输 CID、名称、类型、大小、所在节点数、创建时间、到当前设备的最短中转次数 |
-| `show DIGEST` | 详细信息：digest、传输 CID、大小、副本、每台设备到当前节点的中转次数与路径（local / direct / relay）；tree 种子按目录为操作单位。超过 100 个文件时默认只打印文件数，需要具体路径时加 `--list-files`；不为每个小文件单独计算 digest |
-| `get DIGEST -o FILE` | 从最近的副本下载。tree 种子保存为 tar；省略 `-o` 或 `-o -` 时写到 stdout |
-| `pull DIGEST` | 让本机 daemon 用 bitswap 向持有者拉取该种子，校验 DirDigest（tree）或 sha256（blob）后，作为临时副本写入 `packages/replica-*` 或 CAS，随后本机也可对外提供。已在本机则直接报告路径。可用 `ptc clean resource` 删除副本。`--json` 可用。 |
+| (default) | List seeds: digest, Bitswap transport CID, name, kind, size, replica count, created time, and the shortest hop count to the current device |
+| `show DIGEST` | Details: digest, transport CID, size, replicas, and per-host hop count and path to the current node (local / direct / relay). Tree seeds are treated as a directory unit. When there are more than 100 files, only the file count is printed by default; add `--list-files` for every path. A digest is not computed for each small file. |
+| `get DIGEST -o FILE` | Download from the nearest replica. Tree seeds are saved as tar. Omitting `-o`, or using `-o -`, writes to stdout. |
+| `pull DIGEST` | Ask the local daemon to pull the seed from a holder with Bitswap, verify the DirDigest (tree) or sha256 (blob), write it as a temporary replica into `packages/replica-*` or CAS, and then offer it to others. If it is already local, the path is reported directly. Delete the replica with `ptc clean resource`. `--json` is accepted. |
 
-列表筛选与 WebUI 资源分栏语义相同：
+List filters have the same semantics as the WebUI Resources pane:
 
-| 参数 | 作用 |
+| Flag | Purpose |
 | --- | --- |
-| `--search` | 在 digest、CID、名称、类型、文件路径和所在设备上做不区分大小写的子串匹配 |
-| `--kind` | `all`、`tree` 或 `blob` |
-| `--node` | 只列出该节点（名称或 peer id）上存有副本的种子 |
-| `--sort` | `name`（默认）、`size`、`kind`、`hops`、`replicas`、`created`、`digest` |
-| `--order` | `asc` 或 `desc`（`size` / `replicas` 默认降序） |
-| `--list-files` | 仅 `show`：列出目录树里的每一条路径。默认在文件数超过 100 时只显示数量，与看板预览规则一致 |
+| `--search` | Case-insensitive substring match on digest, CID, name, kind, file path, and hosting device |
+| `--kind` | `all`, `tree`, or `blob` |
+| `--node` | Only seeds that have a replica on this node (name or peer id) |
+| `--sort` | `name` (default), `size`, `kind`, `hops`, `replicas`, `created`, `digest` |
+| `--order` | `asc` or `desc` (`size` / `replicas` default to descending) |
+| `--list-files` | `show` only: list every path in the directory tree. By default, when there are more than 100 files only the count is shown, matching the board preview rule |
 
-`--json` 适用于列表、`show` 和 `pull`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。CLI / HTTP 仍是内容接口，节点之间优先使用标准 Boxo Bitswap 传输 256KiB 分块：`/ptc/resource-blocks/1.0.0` 仅发现传输 manifest 的 CID，payload 使用标准 Bitswap。旧节点不支持该发现协议时才回退原 tar/blob 协议，校验错误不会静默回退。按跳数依次尝试副本，接收完整并校验 sha256 / DirDigest 后再交付内容。
+`--json` applies to the list, `show`, and `pull`. Hop counts are relative to this daemon, not to the computer running the CLI (if the CLI is attached to a gateway, the gateway is the origin). The CLI / HTTP interface is still a content API. Between nodes, 256KiB blocks are preferably transferred with standard Boxo Bitswap: `/ptc/resource-blocks/1.0.0` only discovers the transport-manifest CID; the payload uses standard Bitswap. Fallback to the original tar/blob protocol happens only when an old node does not support that discovery protocol. A verification error does not fall back silently. Replicas are tried in hop order. Content is delivered only after it has been received in full and verified with sha256 / DirDigest.
 
-清单和看板上的 CID 是 Bitswap 传输 manifest 的 raw SHA-256 CID，不是 UnixFS CID；持有者在首次导出或后台索引后保存并通告它。`testdata/bitswap-dispatch` 提供只按 digest 引用约 2 GiB SDK 的派发样例。
+The CID in the inventory and on the board is the raw SHA-256 CID of the Bitswap transport manifest, not a UnixFS CID. A holder saves and announces it after the first export or a background index. `testdata/bitswap-dispatch` is a dispatch sample that references an ~2 GiB SDK by digest only.
 
-pull 的块数、字节数和 MiB/s 是逻辑取块统计，包含索引、缓存命中与重复引用，不代表实际网络流量或线速；provider 表示请求时选定的资源持有者，不是 Bitswap 每个实际供块 peer 的精确归因。树资源的 CID 保存为资源目录外的 `.cid` sidecar，避免修改传输内容自身。
+The block count, byte count, and MiB/s reported by pull are logical fetch statistics. They include indexes, cache hits, and repeated references, and do not represent actual network traffic or line rate. `provider` is the resource holder chosen when the request was made, not a precise attribution of every Bitswap peer that actually supplied a block. For a tree resource the CID is stored as a `.cid` sidecar outside the resource directory, so the transferred content itself is not modified.
 
-输入仍是 PTC sha256 摘要，不支持直接使用 CID / dataset / UnixFS 输入。单资源超过 10,000 个 256KiB 分块时自动切换为 v2 多层 Merkle 索引，每页最多 256 个引用；无需手动分卷，也不把整个资源或全部块引用放进内存。小资源仍生成 v1 manifest，新节点兼容读取 v1。旧 Bitswap 节点不支持 v2 大资源，提供者与接收者均须升级；格式或校验错误不会回退旧协议。资源大小使用 int64，实际仍受可用磁盘空间、单块 20 秒和总计 30 分钟超时限制。每条中继连接在任一方向累计 64 GiB 或持续 30 分钟后会被重置；超大或慢速传输不保证在重置后无缝继续。以上不代表已经实测 TB 级传输。目录的 tar 开销计入传输大小。
+Input is still a PTC sha256 digest. Direct CID / dataset / UnixFS input is not supported. A single resource with more than 10,000 256KiB blocks automatically switches to a v2 multi-level Merkle index, with at most 256 references per page. You do not need to split volumes by hand, and the whole resource or the full set of block references is not kept in memory. Small resources still get a v1 manifest, and new nodes can read v1. Old Bitswap nodes do not support v2 large resources; both the provider and the receiver must be upgraded. A format or verification error does not fall back to the old protocol. Resource size uses int64. In practice the limits are still available disk space, a 20-second per-block timeout, and a 30-minute overall timeout. Each relay connection is reset after 64 GiB accumulated in either direction, or after 30 minutes; a very large or slow transfer is not guaranteed to continue seamlessly after a reset. None of this claims that terabyte-scale transfers have been measured. Tar overhead of a directory is included in the transfer size.
 
-缓存位于种子盘 `blocks/`，下载与校验暂存位于 `.fetch/`，不构建工作树。自动清种后按所有保留资源的 v1/v2 索引标记并回收未引用块，共享块保留；索引缺失或损坏时中止该轮块回收并记录原因。单独执行 `ptc clean resource` 不会立即回收块缓存；种子磁盘统计包含缓存和暂存。关闭 files 或更新名单后，资源发现与标准 Bitswap 的请求 / 发包都会重新检查策略。
+The cache lives in `blocks/` on the seed volume. Download and verification staging lives in `.fetch/`. No worktree is built. After automatic seed cleanup, unreferenced blocks are marked and reclaimed from the v1/v2 indexes of every retained resource; shared blocks are kept. If an index is missing or corrupt, that round of block reclamation stops and the reason is logged. A standalone `ptc clean resource` does not immediately reclaim the block cache. Seed-disk accounting includes the cache and staging. After files is turned off or the lists are updated, resource discovery and standard Bitswap request / send paths re-check policy.
 
 ### `ptc tasks`
 
-列出或查看网格内公开的运行记录。与 WebUI 任务列表共用 `GET /api/v1/runs`。`ptc tasks show` 会打印由 Prepare YAML 生成的工作树（目录、种子、输出和入口），任务详情页也按同一份记录渲染。
+Lists or inspects run records published on the mesh. It shares `GET /api/v1/runs` with the WebUI task list. `ptc tasks show` prints the worktree generated from the Prepare YAML (directories, seeds, outputs, and the entrypoint). The task detail page renders the same record.
 
 ```text
 ptc tasks
@@ -349,27 +350,27 @@ ptc tasks --node worker-a
 ptc tasks show run-20261110T155326Z-test --node worker-a
 ```
 
-新运行 ID 带随机后缀，同秒在不同节点上运行相同任务也不会互相覆盖。旧记录仍可查看；若旧 ID 在多个节点重复，使用 `tasks show <id> --node <节点名或 peer id>` 指定节点，WebUI 也会分别显示各节点的记录。
+New run IDs have a random suffix, so the same task run in the same second on different nodes does not overwrite another record. Old records can still be viewed. If an old ID is duplicated across nodes, use `tasks show <id> --node <node name or peer id>` to pick a node. The WebUI also shows each node's record separately.
 
-列表筛选与 WebUI 任务分栏语义相同：
+List filters have the same semantics as the WebUI Tasks pane:
 
-| 参数 | 作用 |
+| Flag | Purpose |
 | --- | --- |
-| `--search` | 在 id、中英文名称、状态、事件、触发者、目标、节点、peer id、摘要上做不区分大小写的子串匹配 |
-| `--status` | `all`、`in_progress`（含 queued）、`completed`（success / cancelled / skipped）、`failed`，或精确状态 |
-| `--node` | 按节点名或 peer id 过滤 |
-| `--sort` | `started`（默认）、`duration`、`name`、`status`、`node`、`id` |
-| `--order` | `asc` 或 `desc`（`started` / `duration` 默认降序） |
+| `--search` | Case-insensitive substring match on id, Chinese and English names, status, events, actor, target, node, peer id, and summary |
+| `--status` | `all`, `in_progress` (includes queued), `completed` (success / cancelled / skipped), `failed`, or an exact status |
+| `--node` | Filter by node name or peer id |
+| `--sort` | `started` (default), `duration`, `name`, `status`, `node`, `id` |
+| `--order` | `asc` or `desc` (`started` / `duration` default to descending) |
 
 ### `ptc policy`
 
-查看或修改**本机**白名单、黑名单和功能开关。需要 daemon 已在运行。修改会立即生效，并写回 daemon 正在使用的配置文件。
+Shows or changes **this host's** allow list, deny list, and feature switches. The daemon must already be running. Changes take effect immediately and are written back to the config file the daemon is using.
 
-不带子命令时等同于 `ptc policy show`。
+With no subcommand, this is `ptc policy show`.
 
 #### `ptc policy show`
 
-打印当前策略：
+Prints the current policy:
 
 ```text
 allow: (empty: accept all peers in trusted CIDRs)
@@ -380,89 +381,89 @@ relay: false
 update (accept mesh updates): true
 ```
 
-名单非空时，条目以逗号加空格拼接。空名单表示：在受信任网段内，不另做成员限制（黑名单仍优先）。
+When a list is non-empty, entries are joined with a comma and a space. An empty list means: inside the trusted segments, there is no extra membership restriction (the deny list still wins).
 
-#### `ptc policy allow add|rm <条目>`
+#### `ptc policy allow add|rm <entry>`
 
-#### `ptc policy deny add|rm <条目>`
+#### `ptc policy deny add|rm <entry>`
 
-条目可以是 **IP**、**CIDR**、**节点名**或 **peer ID**。添加时若列表里已有完全相同的字符串则忽略；删除按字符串精确匹配。匹配对端时，节点名和 peer ID 不区分大小写；IP / CIDR 按地址判断。
+An entry may be an **IP**, a **CIDR**, a **node name**, or a **peer ID**. Add is ignored if the exact same string is already in the list. Remove is an exact string match. When matching a peer, node name and peer ID are case-insensitive; IP / CIDR are judged as addresses.
 
-黑名单优先于白名单。白名单非空时，未命中白名单的对端会被拒绝（原因如 `peer is not on this host's allow list`）。
+The deny list wins over the allow list. When the allow list is non-empty, a peer that misses it is refused (reason such as `peer is not on this host's allow list`).
 
-每次成功修改后，stdout 打印更新后的策略（格式与 `show` 相同）。
+After every successful change, stdout prints the updated policy (same format as `show`).
 
 #### `ptc policy service <exec|files|relay> <on|off>`
 
-打开或关闭本机某项服务。服务名只能是 `exec`、`files`、`relay`。开关除 `on` / `off` 外，也接受 `true`、`1`、`enable`、`enabled` 和 `false`、`0`、`disable`、`disabled`（不区分大小写）。
+Turns one local service on or off. The service name must be `exec`, `files`, or `relay`. Besides `on` / `off`, the switch also accepts `true`, `1`, `enable`, `enabled` and `false`, `0`, `disable`, `disabled` (case-insensitive).
 
-目录里仍能看到该节点，只是对应服务会标为不可用，并给出原因（例如 `service exec is disabled on this host`）。把 `exec` 打开并不等于一定对外提供执行：本机还需要有 NVIDIA GPU。
+The node still appears in the catalog; the corresponding service is marked unavailable, with a reason (for example `service exec is disabled on this host`). Turning `exec` on does not by itself mean execution is offered: the host still needs an NVIDIA GPU.
 
 #### `ptc policy update <on|off>`
 
-允许或拒绝受信对端把新版本推到本机（`update.accept_remote`，默认允许）。写入配置文件的 `update.accept_remote` 字段。
+Allows or refuses trusted peers to push a new version to this host (`update.accept_remote`, allowed by default). Writes the `update.accept_remote` field in the config file.
 
-## 配置文件
+## Configuration file
 
-YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不要在配置里写邻居 IP。
+YAML. Copy `config.example.yaml` and fill in at least one `trusted_cidrs` entry. Do not put neighbor IPs in the config.
 
-| 字段 | 类型 | 默认 | 说明 |
+| Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `name` | 字符串 | 主机名 | 目录中的显示名。 |
-| `listen` | `host:port` | `0.0.0.0:18765` | 组网监听地址。端口建议在整个集群保持一致。 |
-| `api` | `host:port` | `127.0.0.1:18780` | 本机控制 API。应绑 loopback；非 loopback 来源会被拒绝。 |
-| `data_dir` | 路径 | 见「数据目录」 | 身份密钥和 lock 文件位置；也是各存储路径的默认根。 |
-| `storage.seeds_dir` | 路径 | `data_dir` | `cas/` 与 `packages/` 的父目录。 |
-| `storage.worktrees_dir` | 路径 | `data_dir/worktrees` | 工作树根目录。 |
-| `storage.runs_dir` | 路径 | `data_dir/runs` | 运行记录与队列。 |
-| `storage.size_limit` | bytes 或单位字符串 | `40GB` | 输入、输出、CAS、块缓存及下载暂存共用的做种上限，按磁盘 free 动态缩减。 |
-| `storage.delete_size` | bytes 或单位字符串 | `20GB` | 每轮自动清理目标；省略时为配置上限的一半。 |
-| `storage.workspace_limit` | bytes 或单位字符串 | `0` | 所有 workspace 合计上限；0 不限制。 |
-| `exec.concurrency` | 整数 | `1` | 本节点同时执行的作业数；其余排队。 |
-| `policy.remote_clean` | 布尔 | `false` | 为预留开关；当前 `ptc clean` 只清理本机。 |
-| `trusted_cidrs` | CIDR 列表 | **必填，至少一条** | 信任边界。网段外的连接一律拒绝。本机回环互连需要显式加上如 `127.0.0.0/8`。 |
-| `psk` | 64 个十六进制字符 | 空（不启用） | 可选，32 字节密钥，用于挡住网段外噪声。可带 `0x` 前缀。集群内必须相同。 |
-| `services.exec` | 布尔 | `true` | 是否打算提供执行。无 NVIDIA GPU 时目录仍会标为不可用。 |
-| `services.files` | 布尔 | `true` | 是否提供文件服务（种子与结果包的发布/下载）。 |
-| `services.relay` | 布尔 | `false` | 是否作为网关：扫描受信任网段并推送目录。无 GPU 的白名单主机应开这个、并关闭 `exec`。 |
-| `policy.allow` | 字符串列表 | `[]` | 本机白名单。 |
-| `policy.deny` | 字符串列表 | `[]` | 本机黑名单，优先于白名单。 |
-| `update.accept_remote` | 布尔 | `true` | 是否接受受信任节点发起的同主版本网格升级。可用 `ptc policy update` 修改。 |
-| `scan_interval` | 非负时长 | `0s` | 0 表示无限周期，仅启动扫描一次；正数为每次扫描完成后到下一次扫描的间隔。 |
-| `scan_min_interval` | 正时长 | `60s` | 全部本地/远端手动扫描请求共用的冷却间隔；省略或 0 取默认，负数非法。 |
-| `disable_mdns` | 布尔 | `false` | 为 true 时不做 mDNS 发现。Docker 跨网段测试会用到。 |
-| `scan_hosts` | 字符串列表 | `[]` | 网关在 CIDR 扫描之外额外探测的目标（主机名、IP，或 `host:port`）。解析到的地址也会被连接门禁放行。Docker 演示里网关用 `host.docker.internal` 找到 Windows 本机节点，而不去扫描整个 Docker Desktop 虚拟网段。 |
+| `name` | string | hostname | Display name in the catalog. |
+| `listen` | `host:port` | `0.0.0.0:18765` | Mesh listen address. The port should stay the same across the cluster. |
+| `api` | `host:port` | `127.0.0.1:18780` | Local control API. Bind it to loopback; non-loopback sources are refused. |
+| `data_dir` | path | see "Data directory" | Location of the identity key and lock file, and the default root of the storage paths. |
+| `storage.seeds_dir` | path | `data_dir` | Parent of `cas/` and `packages/`. |
+| `storage.worktrees_dir` | path | `data_dir/worktrees` | Worktree root. |
+| `storage.runs_dir` | path | `data_dir/runs` | Run records and the queue. |
+| `storage.size_limit` | bytes or a unit string | `40GB` | Shared seeding cap for inputs, outputs, CAS, the block cache, and download staging, reduced dynamically from disk free. |
+| `storage.delete_size` | bytes or a unit string | `20GB` | Automatic cleanup target per round; defaults to half of the configured cap when omitted. |
+| `storage.workspace_limit` | bytes or a unit string | `0` | Combined cap of all workspaces; 0 means unlimited. |
+| `exec.concurrency` | integer | `1` | How many jobs this node runs at once; the rest queue. |
+| `policy.remote_clean` | bool | `false` | Reserved switch. Today `ptc clean` only cleans locally. |
+| `trusted_cidrs` | CIDR list | **required, at least one** | Trust boundary. Connections from outside the segments are always refused. Same-host loopback peering needs an explicit entry such as `127.0.0.0/8`. |
+| `psk` | 64 hex characters | empty (disabled) | Optional 32-byte key used to block noise from outside the segments. A `0x` prefix is allowed. Every node in the cluster must use the same value. |
+| `services.exec` | bool | `true` | Whether this host intends to offer exec. Without an NVIDIA GPU the catalog still marks it unavailable. |
+| `services.files` | bool | `true` | Whether to offer the files service (publish/download of seeds and result packages). |
+| `services.relay` | bool | `false` | Whether to act as a gateway: scan trusted segments and push the catalog. An allow-listed host without a GPU should turn this on and turn `exec` off. |
+| `policy.allow` | string list | `[]` | Local allow list. |
+| `policy.deny` | string list | `[]` | Local deny list, which wins over the allow list. |
+| `update.accept_remote` | bool | `true` | Whether to accept a same-major-version mesh upgrade from a trusted node. Change it with `ptc policy update`. |
+| `scan_interval` | non-negative duration | `0s` | 0 means an infinite period, so only the start-up scan runs; a positive value is the wait after each scan completes before the next one. |
+| `scan_min_interval` | positive duration | `60s` | Cooldown shared by every local/remote manual scan request. Omitting it or 0 uses the default; a negative value is illegal. |
+| `disable_mdns` | bool | `false` | When true, mDNS discovery is not used. The Docker cross-segment tests use this. |
+| `scan_hosts` | string list | `[]` | Extra probe targets for the gateway beyond the CIDR scan (hostname, IP, or `host:port`). Resolved addresses are also admitted by the connection gater. In the Docker demo the gateway uses `host.docker.internal` to find the Windows host node, instead of scanning the entire Docker Desktop virtual segment. |
 
-网关扫描会跳过大于 `/16` 的前缀（可用地址超过 65534 的网段不会被展开）。跨网段拓扑应把受信任网段写成较窄的 CIDR，通常是 `/16` 或更小。
+A gateway scan skips prefixes broader than `/16` (a segment with more than 65534 usable addresses is not expanded). For a cross-segment topology, write trusted segments as narrower CIDRs, usually `/16` or smaller.
 
-`ptc policy` 的修改会把当前策略写回这份配置文件（权限 `0600`）。不要把 PSK 或其它密钥贴进 issue / 日志。
+`ptc policy` writes the current policy back to this config file (mode `0600`). Do not paste a PSK or other secrets into issues or logs.
 
-## 本机控制 API
+## Local control API
 
-CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`）。只接受来自 loopback 的请求，默认超时 5s。拉取资源与网格升级的客户端超时更长（`pull` 最多 6 小时，`--mesh` 最多 3 小时）。这不是对外的网格协议。
+The CLI calls the daemon's loopback API over HTTP (default `http://127.0.0.1:18780`). Only loopback requests are accepted. The default timeout is 5s. Clients that pull resources or drive a mesh upgrade use a longer timeout (`pull` up to 6 hours, `--mesh` up to 3 hours). This is not a public mesh protocol.
 
-| 方法 | 路径 | 作用 |
+| Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/v1/health` | `{"status":"ok"}` |
-| `GET` | `/api/v1/version` | `{"version":"0.3.0-dev"}`（Release 返回实际标签版本） |
-| `GET` | `/api/v1/status` | 与 `ptc peers --json` 相同的状态对象 |
-| `GET` | `/api/v1/peers` | `{"peers":[...]}`，不含本机 `name` / `version` 包装 |
-| `GET` | `/api/v1/policy` | 当前策略 |
-| `POST` | `/api/v1/policy` | 修改策略，JSON 见下；成功返回更新后的策略 |
-| `GET` | `/api/v1/runs` | 本机及邻居公开的运行记录。可选查询参数：`q`/`search`、`status`、`node`、`sort`、`order`（与 `ptc tasks` 相同） |
-| `GET` | `/api/v1/resources` | 全网种子清单（含所在设备与 hop 数）。可选查询参数：`q`/`search`、`kind`、`node`、`sort`、`order`（与 `ptc resources` 相同） |
-| `GET` | `/api/v1/resources/sha256/{hex}` | 单个种子的大小、副本与 hop 信息 |
-| `GET` | `/api/v1/resources/sha256/{hex}/content` | 下载该种子（tree 为 tar） |
-| `POST` | `/api/v1/resources/sha256/{hex}/pull` | 用 bitswap 把该种子拉进本机仓库（超时按大文件拉取放宽） |
-| `POST` | `/api/v1/exec?target=<name>&follow=1` | 本机 daemon 把请求体中的 bundle 下发到目标；follow 时返回 NDJSON 事件 |
-| `GET` | `/api/v1/queue` | 网格内排队中 / 正在运行的作业 |
-| `POST` | `/api/v1/cancel` | `{"id":"<run-id 或 job-id>"}`，取消排队或运行中的作业 |
-| `POST` | `/api/v1/scan` | `{}` 触发本机，`{"node":"<relay 名称或 peer-id>"}` 请求已知 relay；202 已接受、409 忙、429 限频（含 `Retry-After`）、403 拒绝、404 节点不存在。 |
-| `POST` | `/api/v1/storage/ensure` | 本地 runner 的容量准入：`incoming` bytes、`seeds_dir`、`worktrees_dir`、可选 `reservation_id`；根目录不匹配、容量不足或不能安全清理返回 409。只保证当次检查，调用方还须持有磁盘 reservation。 |
-| `POST` | `/api/v1/update/mesh` | 滚动升级请求（`version`、`nodes`、`batch`、`assets_dir`、`dry_run`） |
-| `POST` | `/api/v1/update/restart` | 请求本机 daemon 用已替换的二进制重新 exec |
+| `GET` | `/api/v1/version` | `{"version":"0.3.0-dev"}` (a Release returns the actual tag version) |
+| `GET` | `/api/v1/status` | The same status object as `ptc peers --json` |
+| `GET` | `/api/v1/peers` | `{"peers":[...]}`, without the local `name` / `version` wrapper |
+| `GET` | `/api/v1/policy` | Current policy |
+| `POST` | `/api/v1/policy` | Change policy, JSON below; success returns the updated policy |
+| `GET` | `/api/v1/runs` | Local and neighbor-published run records. Optional query parameters: `q`/`search`, `status`, `node`, `sort`, `order` (same as `ptc tasks`) |
+| `GET` | `/api/v1/resources` | Mesh-wide seed inventory (including hosts and hop counts). Optional query parameters: `q`/`search`, `kind`, `node`, `sort`, `order` (same as `ptc resources`) |
+| `GET` | `/api/v1/resources/sha256/{hex}` | Size, replicas, and hop information for one seed |
+| `GET` | `/api/v1/resources/sha256/{hex}/content` | Download the seed (a tree is tar) |
+| `POST` | `/api/v1/resources/sha256/{hex}/pull` | Pull the seed into the local store with Bitswap (the timeout is relaxed for large files) |
+| `POST` | `/api/v1/exec?target=<name>&follow=1` | The local daemon dispatches the bundle in the request body to the target; follow returns NDJSON events |
+| `GET` | `/api/v1/queue` | Jobs that are queued or running on the mesh |
+| `POST` | `/api/v1/cancel` | `{"id":"<run-id or job-id>"}`, cancel a queued or running job |
+| `POST` | `/api/v1/scan` | `{}` triggers a local scan; `{"node":"<relay name or peer-id>"}` asks a known relay. 202 accepted, 409 busy, 429 rate-limited (with `Retry-After`), 403 refused, 404 node not found. |
+| `POST` | `/api/v1/storage/ensure` | Capacity admission for a local runner: `incoming` bytes, `seeds_dir`, `worktrees_dir`, optional `reservation_id`. Returns 409 if the roots do not match, capacity is insufficient, or a safe cleanup is not possible. It only guarantees that check; the caller must also hold a disk reservation. |
+| `POST` | `/api/v1/update/mesh` | Rolling-update request (`version`, `nodes`, `batch`, `assets_dir`, `dry_run`) |
+| `POST` | `/api/v1/update/restart` | Ask the local daemon to re-exec the already replaced binary |
 
-`POST /api/v1/policy` 请求体：
+`POST /api/v1/policy` request body:
 
 ```json
 {"op":"allow_add","spec":"10.87.0.10"}
@@ -473,21 +474,21 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 {"op":"update","on":false}
 ```
 
-`op` 只能是 `allow_add`、`allow_rm`、`deny_add`、`deny_rm`、`service`、`update`。未知 `op`、空条目或非法服务名返回 HTTP 400。
+`op` must be `allow_add`, `allow_rm`, `deny_add`, `deny_rm`, `service`, or `update`. An unknown `op`, an empty entry, or an illegal service name returns HTTP 400.
 
 ### `ptc submit`
 
-执行一份 Actions 风格的工作流：普通任务的第一个步骤必须是 Prepare，最后一个必须是 Package result，中间是 `run` 步骤。另一种合法任务是仅包含一个 `ptc/seed@v0` action 的纯做种工作流，见下方。
+Runs an Actions-style workflow. An ordinary job's first step must be Prepare and its last step must be Package result, with `run` steps in between. The other legal job is a seed-only workflow that contains a single `ptc/seed@v0` action; see below.
 
-不加 `--target` 时在**本机**执行。加上 `--target <节点名|peer id>`（或 `auto`）时，本机 daemon 经 libp2p 协议 `/ptc/exec/1.0.0` 把作业下发到目标 exec 节点，目标走同一套 Prepare → steps → Package result，并把运行记录写入共享的 runs 协议，结果包按摘要发布，提交者可用 `ptc resources get` 取回。WebUI 不下发作业。
+Without `--target`, the job runs **locally**. With `--target <node name|peer id>` (or `auto`), the local daemon dispatches the job to the target exec node over the libp2p protocol `/ptc/exec/1.0.0`. The target runs the same Prepare → steps → Package result path, writes the run record through the shared runs protocol, publishes the result package by digest, and the submitter can fetch it with `ptc resources get`. The WebUI does not dispatch jobs.
 
-不加 `--target` 的本机执行发生在 CLI 进程里，不进入 daemon 队列，因此不能 `ptc cancel`，也不受 `exec.concurrency` 限制。需要排队 / 取消语义时，用 `--target <本机节点名>` 提交给自己：daemon 不经网络，直接把作业放入本机 exec 队列（仍要求本机开启 exec，纯做种任务则要求 files；白名单 / 黑名单只约束其他节点）。
+A local run without `--target` happens in the CLI process. It does not enter the daemon queue, so it cannot be `ptc cancel`'d and is not limited by `exec.concurrency`. When you need queue / cancel semantics, submit to yourself with `--target <local node name>`: the daemon puts the job on the local exec queue without going over the network (local exec must still be on; a seed-only job requires files; allow / deny lists only constrain other nodes).
 
-内容寻址的种子（已在网格上发布）不打进 bundle；目标从本地 CAS/packages 或最短跳数的持有者拉取，并校验摘要（目录单元用 DirDigest）。只在提交者本地路径上的种子会先在本机发布，再让目标来拉。小的本地输入默认打进 bundle（`--inline-max`，默认 8MiB）；更大的走发布+拉取。
+Content-addressed seeds (already published on the mesh) are not packed into the bundle. The target pulls them from local CAS/packages or from the shortest-hop holder, and verifies the digest (directory units use DirDigest). Seeds that exist only as a local path on the submitter are published locally first, then pulled by the target. Small local inputs are inlined into the bundle by default (`--inline-max`, default 8MiB); larger ones go through publish+pull.
 
-`prepare.yaml` 的 `target.require_nvidia`（默认 true）和 `target.deny_non_exec`（默认 true）在提交者（目录预检）和目标上都会执行。无 NVIDIA、exec 关闭、或网关必须拒绝，并给出明确错误。exec 节点默认并发 1，后来的作业进入持久 FIFO 队列，而不是直接报忙。
+`target.require_nvidia` (default true) and `target.deny_non_exec` (default true) in `prepare.yaml` are enforced both on the submitter (catalog preflight) and on the target. No NVIDIA, exec disabled, or a gateway must be refused, with a clear error. Exec nodes default to concurrency 1. Later jobs enter the persistent FIFO queue instead of failing immediately as busy.
 
-默认 follow：直到作业结束都打印状态和日志。`--detach` 在入队后返回。提交者断开 follow **不会**取消作业；要用 `ptc cancel <run-id>`。本机或远程提交使用 `--json --fetch-result` 时，stdout 只输出一个 JSON 对象，下载提示写到 stderr；下载失败会填入 JSON 的 `error` 并返回非零退出状态。
+Follow is the default: status and logs are printed until the job ends. `--detach` returns after the job is queued. If the submitter drops follow, the job is **not** cancelled; use `ptc cancel <run-id>`. For a local or remote submit with `--json --fetch-result`, stdout prints only one JSON object, download messages go to stderr, and a download failure fills JSON `error` and returns a non-zero exit status.
 
 ```text
 ptc submit --workflow testdata/submit/workflow.yaml --dry-run
@@ -498,24 +499,24 @@ ptc submit --workflow testdata/submit/workflow.yaml --target auto --json
 ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda
 ```
 
-| 参数 | 默认值 | 作用 |
+| Flag | Default | Purpose |
 | --- | --- | --- |
-| `--workflow` | （必填） | 工作流 YAML 路径。Prepare / Package result 的 `with.file` 相对该文件所在目录解析。 |
-| `--job` | 空 | 工作流里有多个 job 时必须指定名称。只有一个 job 时可省略。 |
-| `--target` | 空（本机执行） | 节点名、peer id，或 `auto`（选一台合格的 exec 节点）。不要把 CUDA 作业指向网关。 |
-| `--detach` | false | 入队后返回，不跟随日志。 |
-| `--fetch-result <dir>` | 空 | follow 成功后把结果包解压到该目录。本机提交也支持，但需要本机 daemon；没有 daemon 时在执行前报错。 |
-| `--inline-max` | 8388608 | 打进 bundle 的本地种子大小上限（字节）；`-1` 表示全部改为发布后按摘要拉取。 |
-| `--dry-run` | false | 只解析和校验，不执行、不下发。 |
-| `--force` | false | 仅本机执行：跳过 NVIDIA / exec 检查。 |
-| `--keep-worktree` | false | 执行任务不再支持；传入会报错，所有终态 workspace 都立即回收。 |
-| `--json` | false | 打印 JSON，供 agent 使用。 |
+| `--workflow` | (required) | Path to the workflow YAML. Prepare / Package result `with.file` values are resolved relative to that file's directory. |
+| `--job` | empty | Required when the workflow has more than one job. May be omitted when there is only one. |
+| `--target` | empty (local run) | Node name, peer id, or `auto` (pick a qualified exec node). Do not point a CUDA job at a gateway. |
+| `--detach` | false | Return after queueing, without following logs. |
+| `--fetch-result <dir>` | empty | After a successful follow, unpack the result package into this directory. Local submits also support it, but they need a local daemon; without a daemon the command errors before execution. |
+| `--inline-max` | 8388608 | Size cap in bytes for local seeds inlined into the bundle. `-1` means publish everything and pull by digest. |
+| `--dry-run` | false | Parse and validate only; do not run or dispatch. |
+| `--force` | false | Local runs only: skip the NVIDIA / exec checks. |
+| `--keep-worktree` | false | No longer supported for exec jobs. Passing it errors, and every terminal workspace is reclaimed immediately. |
+| `--json` | false | Print JSON, for agents. |
 
-运行记录（含工作树快照与提交者）写入**执行节点**的 `runs/`，结果作为普通种子发布到其 `packages/`。所有终态工作树立即删除；种子受统一容量和安全副本清理规则管理。超过 100 个文件的目录树种子按整个目录计算一个 digest。
+The run record (including the worktree snapshot and the submitter) is written under `runs/` on the **exec node**, and the result is published as an ordinary seed into its `packages/`. Every terminal worktree is deleted immediately. Seeds are governed by the shared quota and safe-replica cleanup rules. A directory-tree seed with more than 100 files gets one digest for the whole directory.
 
-#### 纯做种（不创建 workspace、不执行）
+#### Seed-only (no workspace, no execution)
 
-`ptc/seed@v0` 的 `with.file` 指向 `apiVersion: ptc/v0`、`kind: Seed` 的资源集合 YAML。该 action 必须是唯一 step；不允许 run / if，也不需要 Prepare / Package result。按 `seeds` 中的 `digest` 或 `local.src` 获取并校验资源后，放入 CAS/packages，作为本机副本继续提供；不创建工作树、不检查 GPU、不运行命令、不产生结果包，任务记录的 `worktree` 为空。
+`ptc/seed@v0` `with.file` points at a resource-set YAML with `apiVersion: ptc/v0` and `kind: Seed`. The action must be the only step. `run` / `if` are not allowed, and Prepare / Package result are not required. Resources are fetched and verified from `digest` or `local.src` in `seeds`, then placed in CAS/packages and offered as a local replica. No worktree is created, no GPU is checked, no command is run, and no result package is produced. The run record's `worktree` is empty.
 
 ```text
 ptc submit --workflow testdata/seed/workflow.yaml --dry-run --json
@@ -523,25 +524,25 @@ ptc submit --workflow testdata/seed/workflow.yaml --json
 ptc submit --workflow docs/templates/seed-workflow.example.yaml --target replica-node --json
 ```
 
-完整 YAML、集合字段及 pin 限制见 [纯做种任务](PREPARE.md#纯做种任务)。模板中的摘要必须替换为 `ptc resources --json` 查到的值。远端需要 `files` 服务及对应策略允许，不要求 exec / NVIDIA；`--target auto` 此时挑选 files 节点。省略 target 时缺失资源由本机 daemon 拉取；仅使用本地资源则无需 daemon。队列 / follow / cancel 语义不变，但 `--fetch-result` 没有结果可取，`--force` / `--keep-worktree` 不改变纯做种行为。向不同节点分别提交可以增加副本；任务完成后副本保留，但不会后台持续检查副本数。
+Full YAML, collection fields, and pin limits are in [Seed-only tasks](PREPARE.md#seed-only-tasks). Digests in the templates must be replaced with values from `ptc resources --json`. A remote needs the `files` service and a matching policy allow; exec / NVIDIA are not required. In this case `--target auto` picks a files node. When target is omitted, missing resources are pulled by the local daemon. A job that uses only local resources does not need a daemon. Queue / follow / cancel semantics are unchanged, but `--fetch-result` has no result to fetch, and `--force` / `--keep-worktree` do not change seed-only behavior. Submitting separately to different nodes can add replicas. After the job finishes the replicas are kept, but replica count is not checked continuously in the background.
 
 ### `ptc queue`
 
-列出各节点处于 `queued`、`running` 或 `cancelling` 的作业。已结束的作业看 `ptc tasks` 或看板。
+Lists jobs in `queued`, `running`, or `cancelling` on each node. Finished jobs are in `ptc tasks` or on the board.
 
 ```text
 ptc queue
 ptc queue --node host --json
 ```
 
-| 参数 | 默认值 | 作用 |
+| Flag | Default | Purpose |
 | --- | --- | --- |
-| `--node` | 空 | 只显示该节点名或 peer id 上的作业。 |
-| `--json` | false | 打印 JSON。 |
+| `--node` | empty | Only jobs on this node name or peer id. |
+| `--json` | false | Print JSON. |
 
 ### `ptc cancel`
 
-取消一个排队中或正在运行的作业（仅 CLI）。排队任务立即返回 `cancelled`；运行中任务先返回 `cancelling`，停止进程树并完成记录后变为 `cancelled`，在此期间仍占用并发槽。已结束的作业会报错，超时记为失败而不是用户取消。Follow 断开不会自动取消。
+Cancels a queued or running job (CLI only). A queued job returns `cancelled` immediately. A running job first returns `cancelling`, then becomes `cancelled` after the process tree is stopped and the record is finished; it still occupies a concurrency slot during that time. A finished job errors. A timeout is recorded as failure, not as a user cancel. Dropping follow does not cancel automatically.
 
 ```text
 ptc cancel run-20260101T000000Z-test
@@ -550,19 +551,19 @@ ptc cancel run-20260101T000000Z-test --json
 
 ### `ptc clean`
 
-只作用于**本机**存储路径。没有 `--node` 远程删除（除非将来目标打开 `policy.remote_clean`）。
+Applies only to **local** storage paths. There is no `--node` remote delete (unless a future target turns on `policy.remote_clean`).
 
-子命令：`outputs`（结果包）、`runs`（已结束的运行记录）、`resource`（按 digest 删种子或结果）、`worktrees`（残留工作树，绝不删除 CAS/packages）。
+Subcommands: `outputs` (result packages), `runs` (finished run records), `resource` (delete a seed or result by digest), `worktrees` (leftover worktrees; never deletes CAS/packages).
 
-运行中的工作树由跨进程锁保护：预览会标记为不可删除，实际删除前也会重新检查；`--force` 不能绕过此保护，也不能绕过持久副本承诺或活跃输入保护。实际删除资源前会重查计划是否过期。工作树根目录的 `.ptc-locks` 是持久锁目录，不要手动删除。旧版本的运行任务不持有这些锁，升级前须等待旧任务结束。自定义 `layout.root` 必须是配置工作树根目录的严格子目录，不能指向根目录、锁目录或外部路径。
+A running worktree is protected by a cross-process lock: preview marks it undeletable, and the lock is checked again before an actual delete. `--force` cannot bypass this protection, a persistent replica commitment, or active-input protection. The plan is rechecked before a resource is actually deleted. `.ptc-locks` under the worktree root is the persistent lock directory; do not delete it by hand. Jobs started by older versions do not hold these locks; wait for those jobs to finish before upgrading. A custom `layout.root` must be a strict subdirectory of the configured worktree root, and must not point at the root, the lock directory, or an external path.
 
-| 参数 | 作用 |
+| Flag | Purpose |
 | --- | --- |
-| `<id…>` / `--match RE` | 按 run id、名称、job 或 digest 筛选。 |
-| `--dry-run` | 列出将删除的路径和字节，不删。 |
-| `--yes` | 实际删除时必须带上（方便非交互 agent）。 |
-| `--force` | 允许删除已 pin 的对象。被排队/运行中作业引用的种子仍会拒绝。 |
-| `--json` | 打印 JSON。 |
+| `<id…>` / `--match RE` | Filter by run id, name, job, or digest. |
+| `--dry-run` | List paths and bytes that would be deleted, without deleting. |
+| `--yes` | Required for an actual delete (so a non-interactive agent can be explicit). |
+| `--force` | Allow deleting a pinned object. A seed referenced by a queued or running job is still refused. |
+| `--json` | Print JSON. |
 
 ```text
 ptc clean worktrees --dry-run
@@ -571,9 +572,9 @@ ptc clean resource sha256:abc… --yes
 ptc clean runs --match 'sample-local' --yes
 ```
 
-## 尚未实现的命令
+## Commands not yet implemented
 
-以下属于后续阶段，当前二进制没有这些子命令：
+These belong to later phases. The current binary has no such subcommands:
 
 - `ptc dataset`
 - `ptc gc`
@@ -581,4 +582,4 @@ ptc clean runs --match 'sample-local' --yes
 - `ptc logs`
 - `ptc artifacts`
 
-设计草案：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。离线摘要见 [DESIGN.md](DESIGN.md)。
+Design draft: [peer-task-control design draft](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413). Offline summary: [DESIGN.md](DESIGN.md).
