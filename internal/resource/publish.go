@@ -122,13 +122,15 @@ func CommitTree(pkg, name string, created time.Time, opts CommitOpts) (Seed, err
 		man.RunOK = opts.RunOK
 	}
 	man.Pin = opts.Pin
-	man.CID = opts.CID
 	man.Replica = opts.Replica
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
 		return Seed{}, err
 	}
 	if err := os.WriteFile(filepath.Join(pkg, "manifest.json"), mb, 0o644); err != nil {
+		return Seed{}, err
+	}
+	if err := SetCID(pkg, opts.CID); err != nil {
 		return Seed{}, err
 	}
 	s, ok := loadPackage(pkg)
@@ -159,26 +161,41 @@ func SetPin(dir string, pin bool) error {
 	return updateManifest(dir, func(m *packageManifest) { m.Pin = pin })
 }
 
-// BlobCIDPath is the sidecar that records the bitswap transport root CID of a CAS blob.
-func BlobCIDPath(blobPath string) string { return blobPath + ".cid" }
+// CIDPath keeps transport metadata outside the content it describes.
+func CIDPath(path string) string { return path + ".cid" }
 
-func readBlobCID(blobPath string) string {
-	b, err := os.ReadFile(BlobCIDPath(blobPath))
+func readCID(path string) string {
+	b, err := os.ReadFile(CIDPath(path))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
 }
 
-// SetBlobCID records the bitswap transport root CID next to a CAS blob.
-func SetBlobCID(blobPath, c string) error {
-	return os.WriteFile(BlobCIDPath(blobPath), []byte(c+"\n"), 0o644)
-}
-
-// SetTreeCID records the bitswap transport root CID in a package manifest.
-// The manifest is not part of DirDigest, so the digest does not change.
-func SetTreeCID(dir, c string) error {
-	return updateManifest(dir, func(m *packageManifest) { m.CID = c })
+// SetCID records the transport root without changing a tree's tar or digest.
+func SetCID(path, c string) error {
+	path = CIDPath(path)
+	if c == "" {
+		err := os.Remove(path)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".cid-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	_, writeErr := f.WriteString(c + "\n")
+	closeErr := f.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(f.Name(), path)
 }
 
 // MarkReplica flags a package as a temporary copy fetched from the mesh.
@@ -229,12 +246,15 @@ func CommitVerifiedTree(pkg, name, digest string, ents []cas.Entry, created time
 	if format == "" {
 		format = "unixfs"
 	}
-	man := packageManifest{Digest: digest, SeedName: name, Unit: "directory", Entries: entries, FileCount: fileCount, Size: size, Format: format, CreatedAt: &created, RunOK: opts.RunOK, Pin: opts.Pin, CID: opts.CID, Replica: opts.Replica}
+	man := packageManifest{Digest: digest, SeedName: name, Unit: "directory", Entries: entries, FileCount: fileCount, Size: size, Format: format, CreatedAt: &created, RunOK: opts.RunOK, Pin: opts.Pin, Replica: opts.Replica}
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
 		return Seed{}, err
 	}
 	if err := os.WriteFile(filepath.Join(pkg, "manifest.json"), mb, 0o644); err != nil {
+		return Seed{}, err
+	}
+	if err := SetCID(pkg, opts.CID); err != nil {
 		return Seed{}, err
 	}
 	s, ok := loadPackage(pkg)
@@ -260,13 +280,13 @@ func FindByDigest(packagesDir, casDir, digest string) (kind, path string, seed S
 	}
 	p := filepath.Join(casDir, "sha256", hex[:2], hex)
 	if st, err := os.Stat(p); err == nil && !st.IsDir() {
-		return "blob", p, Seed{Digest: digest, CID: readBlobCID(p), Kind: "blob", Size: st.Size()}, true
+		return "blob", p, Seed{Digest: digest, CID: readCID(p), Kind: "blob", Size: st.Size()}, true
 	}
 	// also accept the cas.Store layout even if casDir already is .../cas
 	if _, err := os.Stat(p); err != nil {
 		alt := filepath.Join(casDir, hex[:2], hex)
 		if st, err := os.Stat(alt); err == nil && !st.IsDir() {
-			return "blob", alt, Seed{Digest: digest, CID: readBlobCID(alt), Kind: "blob", Size: st.Size()}, true
+			return "blob", alt, Seed{Digest: digest, CID: readCID(alt), Kind: "blob", Size: st.Size()}, true
 		}
 	}
 	return "", "", Seed{}, false

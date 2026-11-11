@@ -84,7 +84,7 @@ func (n *Node) handleResourceBlocks(s network.Stream) {
 		_ = writeResMsg(s, resourcesMessage{Error: err.Error()})
 		return
 	}
-	n.recordSeedCID(blob.Digest, blob.Kind, root.String())
+	n.recordSeedCID(blob.Digest, root.String())
 	if d := n.resourcePeerDecision(s.Conn().RemotePeer()); !d.Allow {
 		_ = writeResMsg(s, resourcesMessage{Error: "policy refused files: " + d.Reason})
 		return

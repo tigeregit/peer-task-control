@@ -981,8 +981,8 @@
         const loc = (s.locations || []).find(l => matchNode(l.node, l.peer_id, n.name || n.peer_id)) || {};
         return `<tr onclick="location.hash='${seedHref(s.digest)}'">
           <td class="mono">${withCopy(s.digest, `<a class="seed" href="${seedHref(s.digest)}">${esc(displayDigest(s.digest))}</a>`)}</td>
-          <td>${withCopy(s.name, esc(s.name || "—"))}</td>
           <td class="mono">${s.cid ? withCopy(s.cid, esc(shortCid(s.cid))) : "—"}</td>
+          <td>${withCopy(s.name, esc(s.name || "—"))}</td>
           <td>${esc(s.kind || "")}</td>
           <td>${humanBytes(s.size)}</td>
           <td>${loc.hops == null ? "—" : loc.hops}</td>

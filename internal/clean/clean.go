@@ -323,6 +323,11 @@ func Apply(plans []Plan) (freed int64, err error) {
 		if err := os.RemoveAll(p.Path); err != nil {
 			return freed, err
 		}
+		if p.Kind == Resources || p.Kind == Outputs {
+			if err := resource.SetCID(p.Path, ""); err != nil {
+				return freed, err
+			}
+		}
 		freed += p.Bytes
 	}
 	return freed, nil

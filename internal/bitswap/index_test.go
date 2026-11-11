@@ -135,10 +135,13 @@ func TestIndexedFetchAndStandardBoxo(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sha256.New()
-	m, err := target.Fetch(ctx, root, "digest", got)
+	m, stats, err := target.FetchWithStats(ctx, root, "digest", got)
 	if err != nil || m.Size != int64(indexFanout)*ChunkSize+int64(len(tail)) ||
 		!bytes.Equal(got.Sum(nil), expected.Sum(nil)) {
 		t.Fatalf("indexed fetch: %+v, %v", m, err)
+	}
+	if stats.Blocks != indexFanout+5 || stats.Bytes <= m.Size || stats.Duration <= 0 || stats.MBPerSec <= 0 {
+		t.Fatalf("indexed fetch statistics omit pages or chunks: %+v", stats)
 	}
 
 	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"))

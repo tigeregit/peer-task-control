@@ -175,6 +175,24 @@ func TestBitswapPullPersistsReplicaAndCID(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.indexLocalCIDs()
+	export := func() string {
+		t.Helper()
+		blob, err := a.openLocal(seed.Digest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blob.Body.Close()
+		root, err := a.blocks.Export(ctx, blob.Digest, blob.Kind, blob.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return root.String()
+	}
+	root := export()
+	a.recordSeedCID(seed.Digest, root)
+	if next := export(); next != root {
+		t.Fatalf("recording a CID changed its transport: %s -> %s", root, next)
+	}
 	res, err := b.PullSeed(ctx, seed.Digest, io.Discard)
 	if err != nil {
 		t.Fatal(err)

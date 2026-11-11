@@ -88,7 +88,7 @@ func InventoryAt(packagesDir, casDir string) []Seed {
 			return nil
 		}
 		t := info.ModTime().UTC()
-		by[digest] = Seed{Digest: digest, CID: readBlobCID(p), Kind: "blob", Size: info.Size(), Name: "sha256:" + name[:12], CreatedAt: &t}
+		by[digest] = Seed{Digest: digest, CID: readCID(p), Kind: "blob", Size: info.Size(), Name: "sha256:" + name[:12], CreatedAt: &t}
 		return nil
 	})
 	out := make([]Seed, 0, len(by))
@@ -109,6 +109,9 @@ func loadPackage(dir string) (Seed, bool) {
 		return Seed{}, false
 	}
 	s := Seed{Digest: Normalize(man.Digest), CID: man.CID, Replica: man.Replica, Name: man.SeedName, Kind: "tree", Unit: man.Unit, Size: man.Size, FileCount: man.FileCount, Pin: man.Pin, RunOK: man.RunOK}
+	if c := readCID(dir); c != "" {
+		s.CID = c
+	}
 	if s.Name == "" {
 		s.Name = filepath.Base(dir)
 	}

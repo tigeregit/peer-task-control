@@ -49,7 +49,7 @@ func TestCleanOutputsSkipsPinnedAndKeepsSeeds(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok := true
-	if _, err := resource.CommitTree(pkg, "sample-results", time.Now(), resource.CommitOpts{RunOK: &ok, Pin: true}); err != nil {
+	if _, err := resource.CommitTree(pkg, "sample-results", time.Now(), resource.CommitOpts{RunOK: &ok, Pin: true, CID: "transport-root"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -69,6 +69,9 @@ func TestCleanOutputsSkipsPinnedAndKeepsSeeds(t *testing.T) {
 	}
 	if _, err := Apply(forced); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(resource.CIDPath(pkg)); !os.IsNotExist(err) {
+		t.Fatalf("output CID sidecar remains: %v", err)
 	}
 	if resource.FindPackageDirAt(cfg.PackagesDir(), seed.Digest) == "" {
 		t.Fatal("cleaning outputs deleted a seed package")

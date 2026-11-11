@@ -149,7 +149,7 @@ func (n *Node) commitReplica(blob resource.Blob, info resource.Info, root string
 		if got != info.Digest {
 			return "", fmt.Errorf("digest mismatch for %s: bitswap tree hashes to %s", info.Digest, got)
 		}
-		pkg := filepath.Join(n.Cfg.PackagesDir(), "replica-"+resource.Hex(info.Digest)[:16])
+		pkg := filepath.Join(n.Cfg.PackagesDir(), "replica-"+resource.Hex(info.Digest))
 		_ = os.RemoveAll(pkg)
 		if err := os.MkdirAll(filepath.Dir(pkg), 0o755); err != nil {
 			return "", err
@@ -193,7 +193,9 @@ func (n *Node) commitReplica(blob resource.Blob, info resource.Info, root string
 	}
 	dst := store.Path(info.Digest)
 	if root != "" {
-		_ = resource.SetBlobCID(dst, root)
+		if err := resource.SetCID(dst, root); err != nil {
+			return "", err
+		}
 	}
 	return dst, nil
 }
@@ -203,22 +205,16 @@ func (n *Node) Pull(ctx context.Context, digest string) (any, error) {
 	return n.PullSeed(ctx, digest, nil)
 }
 
-func (n *Node) recordSeedCID(digest, kind, c string) {
+func (n *Node) recordSeedCID(digest, c string) {
 	if c == "" {
 		return
 	}
 	digest = resource.Normalize(digest)
-	if kind, path, s, ok := resource.FindByDigest(n.Cfg.PackagesDir(), n.Cfg.CASDir(), digest); ok {
+	if _, path, s, ok := resource.FindByDigest(n.Cfg.PackagesDir(), n.Cfg.CASDir(), digest); ok {
 		if s.CID == c {
 			return
 		}
-		var err error
-		if kind == "tree" {
-			err = resource.SetTreeCID(path, c)
-		} else {
-			err = resource.SetBlobCID(path, c)
-		}
-		if err != nil {
+		if err := resource.SetCID(path, c); err != nil {
 			n.Log.Warn("record seed CID failed", "digest", digest, "err", err)
 		}
 	}
@@ -247,7 +243,7 @@ func (n *Node) indexLocalCIDs() {
 			n.Log.Debug("index seed CID failed", "digest", s.Digest, "err", err)
 			continue
 		}
-		n.recordSeedCID(s.Digest, blob.Kind, root.String())
+		n.recordSeedCID(s.Digest, root.String())
 		n.Log.Info("indexed seed for bitswap", "name", s.Name, "digest", s.Digest, "cid", root.String(), "files", s.FileCount, "bytes", s.Size)
 	}
 	n.bumpLocal()
