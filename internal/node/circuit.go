@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -165,7 +164,8 @@ func circuitThrough(relayAddr ma.Multiaddr, relayID peer.ID) (ma.Multiaddr, erro
 }
 
 func (n *Node) reserveWithRelays(ctx context.Context) {
-	if n.Cfg.Services.Relay {
+	_, _, relayOn := n.Store.Services()
+	if relayOn {
 		return
 	}
 	for _, e := range n.Catalog.Snapshot() {
@@ -177,33 +177,36 @@ func (n *Node) reserveWithRelays(ctx context.Context) {
 		if err != nil || rid == n.Host.ID() {
 			continue
 		}
-		var addrs []ma.Multiaddr
-		for _, s := range e.Addrs {
-			a, err := ma.NewMultiaddr(s)
-			if err != nil || isCircuit(a) {
-				continue
+		info := peer.AddrInfo{ID: rid}
+		cctx, cancel := context.WithTimeout(ctx, dialTimeout)
+		cctx = network.WithForceDirectDial(cctx, "reserve circuit relay")
+		if err := n.Host.Connect(cctx, info); err != nil {
+			cancel()
+			if ctx.Err() == nil {
+				n.Log.Warn("relay connection failed", "relay", e.Name, "peer", e.PeerID, "err", err)
 			}
-			addrs = append(addrs, a)
-		}
-		if len(addrs) == 0 {
 			continue
 		}
-		info := peer.AddrInfo{ID: rid, Addrs: addrs}
-		cctx, cancel := context.WithTimeout(ctx, dialTimeout)
-		_ = n.Host.Connect(cctx, info)
 		_, err = relayclient.Reserve(cctx, n.Host, info)
 		cancel()
 		if err != nil {
-			n.Log.Debug("relay reservation failed", "relay", e.Name, "err", err)
+			if ctx.Err() == nil {
+				n.Log.Warn("relay reservation failed", "relay", e.Name, "peer", e.PeerID, "err", err)
+			}
 			continue
 		}
 		n.Log.Info("reserved circuit relay", "relay", e.Name, "peer", e.PeerID)
 	}
 }
 
+func (n *Node) requestRelayReservation() {
+	select {
+	case n.relayKick <- struct{}{}:
+	default:
+	}
+}
+
 func (n *Node) startRelayLoop() {
-	var once sync.Once
-	_ = once
 	go func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
@@ -212,6 +215,8 @@ func (n *Node) startRelayLoop() {
 			select {
 			case <-n.ctx.Done():
 				return
+			case <-n.relayKick:
+				n.reserveWithRelays(n.ctx)
 			case <-t.C:
 				n.reserveWithRelays(n.ctx)
 			}

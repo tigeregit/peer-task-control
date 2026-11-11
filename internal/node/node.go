@@ -63,6 +63,7 @@ type Node struct {
 	mu          sync.Mutex
 	localTime   time.Time
 	scanNow     chan struct{}
+	relayKick   chan struct{}
 	selfAddrs   map[string]struct{}
 	queue       *dispatch.Queue
 	follows     *execFollowers
@@ -124,6 +125,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 		ctx:       ctx,
 		cancel:    cancel,
 		scanNow:   make(chan struct{}, 1),
+		relayKick: make(chan struct{}, 1),
 		execKick:  make(chan struct{}, 1),
 		selfAddrs: map[string]struct{}{},
 	}
@@ -362,7 +364,7 @@ func (n *Node) handleCatalog(s network.Stream) {
 	if added > 0 {
 		n.Log.Info("catalog updated", "added_or_changed", added, "from", s.Conn().RemotePeer())
 		n.broadcastExcept(s.Conn().RemotePeer())
-		go n.reserveWithRelays(n.ctx)
+		n.requestRelayReservation()
 	}
 }
 
@@ -390,7 +392,7 @@ func (n *Node) exchange(ctx context.Context, id peer.ID) error {
 	if added > 0 {
 		n.Log.Info("catalog updated", "added_or_changed", added, "from", id)
 		n.broadcastExcept(id)
-		go n.reserveWithRelays(n.ctx)
+		n.requestRelayReservation()
 	}
 	return nil
 }
@@ -427,8 +429,10 @@ func (n *Node) learnAddrs(entries []catalog.Entry) {
 			if err != nil {
 				continue
 			}
-			if ip, ok := addrIP(a); ok && !n.Cfg.InTrustedIP(ip) && !isCircuit(a) {
-				continue
+			if !isCircuit(a) {
+				if ip, ok := addrIP(a); ok && (ip.IsLoopback() || !n.Cfg.InTrustedIP(ip)) {
+					continue
+				}
 			}
 			addrs = append(addrs, a)
 		}
@@ -750,6 +754,11 @@ func (nn *netNotifee) Disconnected(network.Network, network.Conn) {}
 func (nn *netNotifee) Connected(_ network.Network, c network.Conn) {
 	n := (*Node)(nn)
 	id := c.RemotePeer()
+	if !isCircuit(c.RemoteMultiaddr()) {
+		if e, ok := n.Catalog.Get(id.String()); ok && e.Services["relay"].Enabled {
+			n.requestRelayReservation()
+		}
+	}
 	go func() {
 		ctx, cancel := context.WithTimeout(n.ctx, dialTimeout)
 		defer cancel()

@@ -96,7 +96,7 @@ Agents should pass `--json` on `peers`, `peers show`, `tasks`, `tasks show`, `re
 
 1. Version mismatch → install a matching binary; reread `ptc skill print`.
 2. `daemon lock not found` → start `ptc daemon --config config.yaml` with the same `--data-dir`.
-3. Target not in the catalog → wait for a scan/relay push; check `trusted_cidrs` and, across segments, that a `relay` gateway is up. Do not invent neighbor IPs. Gateways may use `scan_hosts` (e.g. `host.docker.internal` for the Windows `host` node).
+3. Target not in the catalog → wait for a scan/relay push; check `trusted_cidrs` and, across segments, that a `relay` gateway is up. Do not invent neighbor IPs. Nodes may use `scan_hosts` (e.g. `host.docker.internal` for the Windows `host` node, or `127.0.0.1:port` for another local node). For a NAT-mapped relay, forward both TCP and UDP on the mesh port. Nodes re-reserve on relay reconnection; check daemon warnings if reservation fails.
 4. Placement / policy refusal → pick another node; show the error; do not `--force` a CUDA job onto a no-GPU machine.
 5. `queue is full` or job sits in `queued` → `ptc queue --json`; wait or `ptc cancel`.
 6. Digest missing on the target → confirm the submitter published it (`ptc resources --node <submitter>`) and the mesh resource protocol can reach that replica.

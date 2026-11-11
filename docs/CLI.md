@@ -117,6 +117,8 @@ ptc daemon --config config.yaml --data-dir D:\ptc-data
 - 监听组网端口（默认 `0.0.0.0:18765`）和本机 API（默认 `127.0.0.1:18780`）。
 - 控制 API 只接受 loopback 来源。
 - 同网段用 mDNS 和端口探测发现邻居；跨网段由 `services.relay: true` 的网关按 `scan_interval` 扫描受信任网段并推送目录。
+- 经 NAT 或 Docker 端口映射访问网关时，应同时映射组网端口的 TCP 和 UDP。节点与网关重连后会立即重新预约中继；预约失败会记录警告。
+- 目录中的 loopback 地址属于公布地址的节点，不会被其他节点当作直连地址。同机运行多个节点时，可以用 `scan_hosts` 显式指定各自的 `127.0.0.1:端口`。
 - 配置里**不要**填写邻居名单。
 - 启动成功后 stderr 会打印节点名、peer ID 和 API 地址，并提示随后使用 `ptc peers`。
 - 用 Ctrl+C 或 SIGTERM 停止。
