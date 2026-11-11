@@ -68,6 +68,9 @@ func TestInteroperatesWithStandardBoxo(t *testing.T) {
 	if err := json.Unmarshal(b.RawData(), &manifest); err != nil {
 		t.Fatal(err)
 	}
+	if manifest.Version != 1 || manifest.Index != "" || len(manifest.Chunks) != 4 {
+		t.Fatalf("small resources lost legacy manifest compatibility: %+v", manifest)
+	}
 	var got bytes.Buffer
 	for _, ref := range manifest.Chunks {
 		c, err := cid.Decode(ref)
