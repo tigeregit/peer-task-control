@@ -189,6 +189,7 @@ func resourceHaystack(s resource.Info) string {
 		b.WriteByte(' ')
 	}
 	add(s.Digest)
+	add(s.CID)
 	add(s.Name)
 	add(s.Kind)
 	for _, f := range s.Files {

@@ -259,6 +259,13 @@ func (n *Node) OpenResource(ctx context.Context, digest string) (resource.Blob, 
 	if blob, err := n.openLocal(digest); err == nil {
 		return blob, nil
 	}
+	if n.blocks != nil {
+		if _, err := n.PullSeed(ctx, digest, nil); err == nil {
+			return n.openLocal(digest)
+		} else {
+			n.Log.Warn("bitswap pull failed; falling back to a one-shot fetch", "digest", digest, "err", err)
+		}
+	}
 	info, err := n.Resource(ctx, digest)
 	if err != nil {
 		return resource.Blob{}, err

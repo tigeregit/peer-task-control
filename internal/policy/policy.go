@@ -147,6 +147,19 @@ func (s *Store) Check(service, peerID, name string, ip net.IP) Decision {
 	return Decision{Allow: true, Reason: ""}
 }
 
+// CheckPeer applies allow/deny lists without requiring a service to be on.
+func (s *Store) CheckPeer(peerID, name string, ip net.IP) Decision {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if matchAny(s.deny, peerID, name, ip) {
+		return Decision{Allow: false, Reason: "peer is on this host's deny list"}
+	}
+	if len(s.allow) > 0 && !matchAny(s.allow, peerID, name, ip) {
+		return Decision{Allow: false, Reason: "peer is not on this host's allow list"}
+	}
+	return Decision{Allow: true, Reason: ""}
+}
+
 func matchAny(list []string, peerID, name string, ip net.IP) bool {
 	for _, spec := range list {
 		if match(spec, peerID, name, ip) {

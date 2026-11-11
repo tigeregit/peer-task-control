@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ipfs/go-cid"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -85,6 +84,7 @@ func (n *Node) handleResourceBlocks(s network.Stream) {
 		_ = writeResMsg(s, resourcesMessage{Error: err.Error()})
 		return
 	}
+	n.recordSeedCID(blob.Digest, blob.Kind, root.String())
 	if d := n.resourcePeerDecision(s.Conn().RemotePeer()); !d.Allow {
 		_ = writeResMsg(s, resourcesMessage{Error: "policy refused files: " + d.Reason})
 		return
@@ -93,75 +93,8 @@ func (n *Node) handleResourceBlocks(s network.Stream) {
 }
 
 func (n *Node) fetchBlocks(ctx context.Context, id, digest string) (resource.Blob, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-	defer cancel()
-	pid, err := peer.Decode(id)
-	if err != nil {
-		return resource.Blob{}, err
-	}
-	s, err := n.openStream(ctx, pid, ProtocolResourceBlocks)
-	if err != nil {
-		return resource.Blob{}, err
-	}
-	defer s.Close()
-	_ = s.SetDeadline(timeNowDeadline(ctx, 30*time.Minute))
-	stop := context.AfterFunc(ctx, func() { _ = s.Reset() })
-	defer stop()
-	if err := writeResMsg(s, resourcesMessage{Type: "bitswap", Digest: digest}); err != nil {
-		return resource.Blob{}, err
-	}
-	reply, _, err := readResMsg(io.LimitReader(s, 64<<10))
-	if err != nil {
-		return resource.Blob{}, err
-	}
-	if reply.Error != "" {
-		return resource.Blob{}, fmt.Errorf("resource blocks: %s", reply.Error)
-	}
-	if reply.Type != "bitswap" || reply.Digest != digest {
-		return resource.Blob{}, fmt.Errorf("invalid resource blocks response")
-	}
-	root, err := cid.Decode(reply.Root)
-	if err != nil {
-		return resource.Blob{}, err
-	}
-	n.blocks.PeerReady(pid)
-	if err := os.MkdirAll(n.Cfg.FetchTmpDir(), 0o700); err != nil {
-		return resource.Blob{}, err
-	}
-	f, err := os.CreateTemp(n.Cfg.FetchTmpDir(), ".resource-")
-	if err != nil {
-		return resource.Blob{}, err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = f.Close()
-			_ = os.Remove(f.Name())
-		}
-	}()
-	m, err := n.blocks.Fetch(ctx, root, digest, f)
-	if err != nil {
-		return resource.Blob{}, fmt.Errorf("bitswap fetch: %w", err)
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return resource.Blob{}, err
-	}
-	if err := verifyResourceTransport(f, n.Cfg.FetchTmpDir(), digest, m.Kind); err != nil {
-		return resource.Blob{}, err
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return resource.Blob{}, err
-	}
-	ct := "application/octet-stream"
-	if m.Kind == "tree" {
-		ct = "application/x-tar"
-	}
-	name := reply.Name
-	if name == "" {
-		name = resource.Filename(resource.Seed{Digest: digest, Kind: m.Kind})
-	}
-	ok = true
-	return resource.Blob{Digest: digest, Name: name, Kind: m.Kind, Size: m.Size, ContentType: ct, Body: &resourceFile{File: f}}, nil
+	blob, _, _, err := n.fetchBlocksDetailed(ctx, id, digest)
+	return blob, err
 }
 
 type resourceFile struct{ *os.File }

@@ -72,6 +72,8 @@ type Node struct {
 	disk        disk.Usage
 	diskAt      time.Time
 	blocks      *bitswap.Exchange
+	pulls       sync.Map // digest -> *sync.Mutex
+	upd         updateState
 	lockWritten bool
 }
 
@@ -143,6 +145,8 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	h.SetStreamHandler(ProtocolRuns, n.handleRuns)
 	h.SetStreamHandler(ProtocolResources, n.handleResources)
 	h.SetStreamHandler(ProtocolResourceBlocks, n.handleResourceBlocks)
+	h.SetStreamHandler(ProtocolUpdate, n.handleUpdate)
+	n.initUpdate()
 	if err := n.initExec(); err != nil {
 		cancel()
 		_ = n.blocks.Close()
@@ -183,6 +187,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	n.RequestScan()
 	n.startRelayLoop()
 	go n.scanLoop()
+	go n.indexLocalCIDs()
 
 	n.Log.Info("ptc daemon started",
 		"name", cfg.Name,
@@ -266,9 +271,12 @@ func (n *Node) LocalEntry() catalog.Entry {
 	n.mu.Unlock()
 
 	return catalog.Entry{
-		PeerID: n.Host.ID().String(),
-		Name:   n.Cfg.Name,
-		Addrs:  addrsString(n.Host.Addrs()),
+		PeerID:       n.Host.ID().String(),
+		Name:         n.Cfg.Name,
+		Addrs:        addrsString(n.Host.Addrs()),
+		Version:      version.Version,
+		Managed:      n.managed(),
+		AcceptUpdate: n.Cfg.AcceptsRemoteUpdate(),
 		Services: map[string]catalog.ServiceState{
 			"exec":  {Offered: execOffered, Enabled: execOn, Reason: execReason},
 			"files": {Offered: filesOn, Enabled: filesOn, Reason: filesReason},

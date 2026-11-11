@@ -43,6 +43,22 @@ type Manifest struct {
 	Height  int      `json:"height,omitempty"`
 }
 
+// PeerBytes attributes logical block data to the selected holder, not wire traffic.
+type PeerBytes struct {
+	Peer   string `json:"peer"`
+	Blocks int    `json:"blocks"`
+	Bytes  int64  `json:"bytes"`
+}
+
+type FetchStats struct {
+	Root      string        `json:"cid"`
+	Duration  time.Duration `json:"duration_ns"`
+	Bytes     int64         `json:"bytes_received"`
+	Blocks    int           `json:"blocks_received"`
+	Providers []PeerBytes   `json:"providers,omitempty"`
+	MBPerSec  float64       `json:"mb_per_sec"`
+}
+
 type Exchange struct {
 	store  *Store
 	swap   *boxo.Bitswap
@@ -213,40 +229,63 @@ func (e *Exchange) Export(ctx context.Context, digest, kind string, r io.Reader)
 }
 
 func (e *Exchange) Fetch(ctx context.Context, root cid.Cid, digest string, w io.Writer) (Manifest, error) {
-	b, err := e.GetBlock(ctx, root)
+	m, _, err := e.FetchWithStats(ctx, root, digest, w)
+	return m, err
+}
+
+// FetchWithStats counts processed blocks, including indexes, cache hits and repeats.
+func (e *Exchange) FetchWithStats(ctx context.Context, root cid.Cid, digest string, w io.Writer) (m Manifest, st FetchStats, retErr error) {
+	st.Root = root.String()
+	t0 := time.Now()
+	defer func() {
+		st.Duration = time.Since(t0)
+		if st.Duration > 0 {
+			st.MBPerSec = float64(st.Bytes) / (1024 * 1024) / st.Duration.Seconds()
+		}
+	}()
+	b, err := e.fetchBlock(ctx, root, &st)
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, st, err
 	}
-	var m Manifest
 	if err := json.Unmarshal(b.RawData(), &m); err != nil {
-		return m, err
+		return m, st, err
 	}
 	if m.Digest != digest || (m.Kind != "blob" && m.Kind != "tree") || m.Size < 0 {
-		return m, fmt.Errorf("invalid resource transport manifest")
+		return m, st, fmt.Errorf("invalid resource transport manifest")
 	}
 	switch m.Version {
 	case 2:
 		if len(m.Chunks) != 0 || m.Index == "" || m.Height < 0 || m.Height > maxIndexHeight ||
 			m.Size <= 0 || m.Size > indexCapacity(m.Height) {
-			return m, fmt.Errorf("invalid resource transport index")
+			return m, st, fmt.Errorf("invalid resource transport index")
 		}
-		return m, e.fetchIndex(ctx, indexLink{CID: m.Index, Size: m.Size}, m.Height, w)
+		err := e.fetchIndex(ctx, indexLink{CID: m.Index, Size: m.Size}, m.Height, w, &st)
+		return m, st, err
 	case 1:
 	default:
-		return m, fmt.Errorf("unsupported resource transport manifest version %d", m.Version)
+		return m, st, fmt.Errorf("unsupported resource transport manifest version %d", m.Version)
 	}
 	if m.Index != "" || m.Height != 0 || len(m.Chunks) > maxLegacyChunks || m.Size > int64(len(m.Chunks))*ChunkSize ||
 		(len(m.Chunks) > 0 && m.Size <= int64(len(m.Chunks)-1)*ChunkSize) {
-		return m, fmt.Errorf("invalid resource transport manifest")
+		return m, st, fmt.Errorf("invalid resource transport manifest")
 	}
 	for i, ref := range m.Chunks {
 		want := int64(ChunkSize)
 		if i == len(m.Chunks)-1 {
 			want = m.Size - int64(i)*ChunkSize
 		}
-		if err := e.writeChunk(ctx, indexLink{CID: ref, Size: want}, w); err != nil {
-			return m, err
+		if err := e.writeChunk(ctx, indexLink{CID: ref, Size: want}, w, &st); err != nil {
+			return m, st, err
 		}
 	}
-	return m, nil
+	return m, st, nil
+}
+
+func (e *Exchange) fetchBlock(ctx context.Context, c cid.Cid, st *FetchStats) (blocks.Block, error) {
+	b, err := e.GetBlock(ctx, c)
+	if err == nil {
+		st.Blocks++
+		st.Bytes += int64(len(b.RawData()))
+	}
+	return b, err
 }

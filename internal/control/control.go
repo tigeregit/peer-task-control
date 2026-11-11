@@ -90,11 +90,12 @@ type Status struct {
 }
 
 type PolicyView struct {
-	Allow []string `json:"allow"`
-	Deny  []string `json:"deny"`
-	Exec  bool     `json:"exec"`
-	Files bool     `json:"files"`
-	Relay bool     `json:"relay"`
+	Allow        []string `json:"allow"`
+	Deny         []string `json:"deny"`
+	Exec         bool     `json:"exec"`
+	Files        bool     `json:"files"`
+	Relay        bool     `json:"relay"`
+	RemoteUpdate bool     `json:"remote_update"`
 }
 
 type PolicyChange struct {
@@ -357,4 +358,91 @@ func (c *Client) Exec(ctx context.Context, target string, bundle []byte, follow 
 			return last, err
 		}
 	}
+}
+
+// PullProvider is one holder's share of a bitswap pull.
+type PullProvider struct {
+	Peer   string `json:"peer"`
+	Blocks int    `json:"blocks"`
+	Bytes  int64  `json:"bytes"`
+}
+
+// PullResult mirrors node.PullResult for the CLI.
+type PullResult struct {
+	Digest     string   `json:"digest"`
+	CID        string   `json:"cid"`
+	Name       string   `json:"name,omitempty"`
+	Kind       string   `json:"kind"`
+	Path       string   `json:"path"`
+	Holders    []string `json:"holders"`
+	AlreadyHad bool     `json:"already_local,omitempty"`
+	TotalNS    int64    `json:"total_ns"`
+	Fetch      struct {
+		DurationNS int64          `json:"duration_ns"`
+		Bytes      int64          `json:"bytes_received"`
+		Blocks     int            `json:"blocks_received"`
+		MBPerSec   float64        `json:"mb_per_sec"`
+		Providers  []PullProvider `json:"providers"`
+	} `json:"fetch"`
+}
+
+// Pull asks the daemon to fetch a seed into its store with bitswap.
+func (c *Client) Pull(digest string) (PullResult, error) {
+	var out PullResult
+	hex := resource.Hex(digest)
+	if hex == "" {
+		return out, fmt.Errorf("invalid digest")
+	}
+	err := c.withTimeout(6*time.Hour).post("/api/v1/resources/sha256/"+hex+"/pull", struct{}{}, &out)
+	return out, err
+}
+
+// UpdateAsset is one platform binary offered in a mesh update.
+type UpdateAsset struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
+	Size   int64  `json:"size"`
+}
+
+// MeshUpdateRequest drives `ptc update --mesh`.
+type MeshUpdateRequest struct {
+	Version   string   `json:"version,omitempty"`
+	Nodes     []string `json:"nodes,omitempty"`
+	Batch     int      `json:"batch,omitempty"`
+	AssetsDir string   `json:"assets_dir,omitempty"`
+	DryRun    bool     `json:"dry_run,omitempty"`
+}
+
+// MeshUpdateNode is the outcome for one node.
+type MeshUpdateNode struct {
+	Name      string   `json:"name"`
+	PeerID    string   `json:"peer_id"`
+	Platform  string   `json:"platform"`
+	From      string   `json:"from_version"`
+	To        string   `json:"to_version,omitempty"`
+	Stage     int      `json:"stage,omitempty"`
+	Status    string   `json:"status"`
+	Detail    string   `json:"detail,omitempty"`
+	Providers []string `json:"providers,omitempty"`
+	MiBs      float64  `json:"mib_s,omitempty"`
+	Took      string   `json:"took,omitempty"`
+}
+
+// MeshUpdateReport is the result of a mesh update.
+type MeshUpdateReport struct {
+	Version string                 `json:"version"`
+	Assets  map[string]UpdateAsset `json:"assets,omitempty"`
+	Nodes   []MeshUpdateNode       `json:"nodes"`
+}
+
+// MeshUpdate asks the local daemon to roll a version out to the mesh.
+func (c *Client) MeshUpdate(req MeshUpdateRequest) (MeshUpdateReport, error) {
+	var out MeshUpdateReport
+	err := c.withTimeout(3*time.Hour).post("/api/v1/update/mesh", req, &out)
+	return out, err
+}
+
+// Restart asks the local daemon to re-exec its (possibly replaced) binary.
+func (c *Client) Restart() error {
+	return c.post("/api/v1/update/restart", map[string]string{}, nil)
 }

@@ -103,12 +103,12 @@ func indexCapacity(height int) int64 {
 	return capacity
 }
 
-func (e *Exchange) fetchIndex(ctx context.Context, link indexLink, height int, w io.Writer) error {
+func (e *Exchange) fetchIndex(ctx context.Context, link indexLink, height int, w io.Writer, st *FetchStats) error {
 	c, err := cid.Decode(link.CID)
 	if err != nil {
 		return err
 	}
-	block, err := e.GetBlock(ctx, c)
+	block, err := e.fetchBlock(ctx, c, st)
 	if err != nil {
 		return err
 	}
@@ -136,9 +136,9 @@ func (e *Exchange) fetchIndex(ctx context.Context, link indexLink, height int, w
 	}
 	for _, child := range page.Links {
 		if height == 0 {
-			err = e.writeChunk(ctx, child, w)
+			err = e.writeChunk(ctx, child, w, st)
 		} else {
-			err = e.fetchIndex(ctx, child, height-1, w)
+			err = e.fetchIndex(ctx, child, height-1, w, st)
 		}
 		if err != nil {
 			return err
@@ -147,12 +147,12 @@ func (e *Exchange) fetchIndex(ctx context.Context, link indexLink, height int, w
 	return nil
 }
 
-func (e *Exchange) writeChunk(ctx context.Context, link indexLink, w io.Writer) error {
+func (e *Exchange) writeChunk(ctx context.Context, link indexLink, w io.Writer, st *FetchStats) error {
 	c, err := cid.Decode(link.CID)
 	if err != nil {
 		return err
 	}
-	block, err := e.GetBlock(ctx, c)
+	block, err := e.fetchBlock(ctx, c, st)
 	if err != nil {
 		return err
 	}

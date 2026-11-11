@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -45,6 +47,55 @@ type release struct {
 // against the SHA256SUMS asset published with the release.
 func FetchRelease(ctx context.Context, requestedVersion, platform string) (Artifact, error) {
 	return fetchRelease(ctx, http.DefaultClient, releaseAPI, requestedVersion, platform)
+}
+
+// ResolveVersion returns the tag (without a leading v) for requestedVersion,
+// which may be "latest".
+func ResolveVersion(ctx context.Context, requestedVersion string) (string, error) {
+	endpoint := strings.TrimRight(releaseAPI, "/") + "/releases/latest"
+	if requestedVersion != "" && requestedVersion != "latest" {
+		tag := requestedVersion
+		if !strings.HasPrefix(tag, "v") {
+			tag = "v" + tag
+		}
+		endpoint = strings.TrimRight(releaseAPI, "/") + "/releases/tags/" + url.PathEscape(tag)
+	}
+	var rel release
+	if err := getJSON(ctx, http.DefaultClient, endpoint, &rel); err != nil {
+		return "", fmt.Errorf("resolve release: %w", err)
+	}
+	if rel.TagName == "" {
+		return "", errors.New("release response has no tag name")
+	}
+	return strings.TrimPrefix(rel.TagName, "v"), nil
+}
+
+// FetchReleaseFromDir loads a verified release asset from a directory that
+// contains the platform binary and SHA256SUMS (offline / mesh staging).
+func FetchReleaseFromDir(dir, requestedVersion, platform string) (Artifact, error) {
+	name, err := BinaryName(platform)
+	if err != nil {
+		return Artifact{}, err
+	}
+	sums, err := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
+	if err != nil {
+		return Artifact{}, fmt.Errorf("read SHA256SUMS: %w", err)
+	}
+	want, err := checksumFor(string(sums), name)
+	if err != nil {
+		return Artifact{}, err
+	}
+	data, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		return Artifact{}, fmt.Errorf("read %s: %w", name, err)
+	}
+	sum := sha256.Sum256(data)
+	got := hex.EncodeToString(sum[:])
+	if subtle.ConstantTimeCompare([]byte(got), []byte(strings.ToLower(want))) != 1 {
+		return Artifact{}, fmt.Errorf("SHA256 verification failed for %s", name)
+	}
+	ver := strings.TrimPrefix(requestedVersion, "v")
+	return Artifact{Version: ver, Platform: platform, Name: name, Digest: "sha256:" + got, Data: data}, nil
 }
 
 func fetchRelease(ctx context.Context, client *http.Client, apiBase, requestedVersion, platform string) (Artifact, error) {

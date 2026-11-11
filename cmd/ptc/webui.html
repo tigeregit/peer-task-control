@@ -626,6 +626,7 @@
       return (h.slice(0, 8) || "") + "***";
     }
     function displayDigest(d) { return digestOpen ? digestHex(d) : maskDigest(d); }
+    function shortCid(c) { c = String(c || ""); return c.length > 20 ? c.slice(0, 8) + "…" + c.slice(-8) : c; }
     function colSort(field) {
       const [cur, order] = (resSort || "").split("-");
       const upOn = cur === field && order === "asc" ? "on" : "";
@@ -670,7 +671,7 @@
       return (resourcesBoard.seeds || []).filter(s => (s.locations || []).some(l => matchNode(l.node, l.peer_id, n.name || n.peer_id)));
     }
     function resourceHay(s) {
-      const bits = [s.digest, s.name, s.kind];
+      const bits = [s.digest, s.cid, s.name, s.kind];
       (s.files || []).forEach(f => { bits.push(f.path, f.digest); });
       (s.locations || []).forEach(l => { bits.push(l.node, l.peer_id); });
       return bits.join(" ").toLowerCase();
@@ -981,6 +982,7 @@
         return `<tr onclick="location.hash='${seedHref(s.digest)}'">
           <td class="mono">${withCopy(s.digest, `<a class="seed" href="${seedHref(s.digest)}">${esc(displayDigest(s.digest))}</a>`)}</td>
           <td>${withCopy(s.name, esc(s.name || "—"))}</td>
+          <td class="mono">${s.cid ? withCopy(s.cid, esc(shortCid(s.cid))) : "—"}</td>
           <td>${esc(s.kind || "")}</td>
           <td>${humanBytes(s.size)}</td>
           <td>${loc.hops == null ? "—" : loc.hops}</td>
@@ -1009,7 +1011,7 @@
         <section class="summary">
           <h2>${i.storage} · ${seeds.length}</h2>
           ${seeds.length ? `<table class="res"><thead><tr>
-            <th>digest</th><th>${lang==="zh"?"名称":"Name"}</th><th>${i.kind}</th><th>${i.size}</th><th>${i.hops}</th>
+            <th>digest</th><th>CID</th><th>${lang==="zh"?"名称":"Name"}</th><th>${i.kind}</th><th>${i.size}</th><th>${i.hops}</th>
           </tr></thead><tbody>${seedRows}</tbody></table>` : `<div class="empty">${i.noResOnNode}</div>`}
         </section>
       </main>${footer()}`;
@@ -1278,6 +1280,7 @@
         const hopsText = hops >= 1e9 ? "—" : String(hops);
         return `<tr onclick="location.hash='${seedHref(s.digest)}'">
           <td class="mono digest-cell">${withCopy(s.digest, `<a class="seed" href="${seedHref(s.digest)}" title="${esc(s.digest)}">${esc(displayDigest(s.digest))}</a>`)}</td>
+          <td class="mono" title="${esc(s.cid || "")}">${s.cid ? withCopy(s.cid, esc(shortCid(s.cid))) : "—"}</td>
           <td>${withCopy(s.name, esc(s.name || "—"))}</td>
           <td>${withCopy(s.kind, esc(s.kind || ""))}</td>
           <td>${withCopy(String(s.size ?? ""), humanBytes(s.size))}</td>
@@ -1300,6 +1303,7 @@
         </div>
         ${seeds.length ? `<table class="res"><thead><tr>
           <th><span class="th">digest ${eyeBtn()}${colSort("digest")}</span></th>
+          <th><span class="th">CID</span></th>
           <th><span class="th">${lang==="zh"?"名称":"Name"}${colSort("name")}</span></th>
           <th><span class="th">${i.kind}${colSort("kind")}</span></th>
           <th><span class="th">${i.size}${colSort("size")}</span></th>
@@ -1334,6 +1338,7 @@
         <a class="back" href="#/resources">← ${i.allResources}</a>
         <h1>${withCopy(info.name || info.digest, esc(info.name || info.digest))}</h1>
         <p class="sub mono">${withCopy(info.digest, esc(info.digest))}</p>
+        ${info.cid ? `<p class="sub mono">CID ${withCopy(info.cid, esc(info.cid))}</p>` : ""}
         <div class="meta-grid">
           <div><div class="k">${i.kind}</div><div class="v">${withCopy(info.kind, esc(info.kind || "—"))}</div></div>
           <div><div class="k">${i.size}</div><div class="v">${withCopy(String(info.size ?? ""), humanBytes(info.size))}</div></div>

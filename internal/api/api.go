@@ -28,6 +28,14 @@ type Node interface {
 	CollectResources(ctx context.Context) []resource.Info
 	Resource(ctx context.Context, digest string) (resource.Info, error)
 	OpenResource(ctx context.Context, digest string) (resource.Blob, error)
+	// Pull fetches a seed into this node's store with bitswap.
+	Pull(ctx context.Context, digest string) (any, error)
+	// MeshUpdate rolls a ptc version out to eligible peers.
+	MeshUpdate(ctx context.Context, req control.MeshUpdateRequest) (control.MeshUpdateReport, error)
+	// RequestRestart re-execs the daemon binary (after ptc update).
+	RequestRestart()
+	RemoteUpdatePolicy() bool
+	SetRemoteUpdatePolicy(on bool) error
 	Dispatch(ctx context.Context, target catalog.Entry, bundle []byte, follow bool, submitter taskboard.Party, ev func(dispatch.Event)) (dispatch.Event, error)
 	CollectQueue(ctx context.Context) []dispatch.QueueItem
 	Cancel(ctx context.Context, id string) (string, error)
@@ -50,14 +58,36 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/resources", s.resources)
 	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}", s.resource)
 	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}/content", s.resourceContent)
+	mux.HandleFunc("POST /api/v1/resources/sha256/{hex}/pull", s.resourcePull)
 	mux.HandleFunc("POST /api/v1/exec", s.exec)
 	mux.HandleFunc("GET /api/v1/queue", s.queue)
 	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
+	mux.HandleFunc("POST /api/v1/update/mesh", s.meshUpdate)
+	mux.HandleFunc("POST /api/v1/update/restart", s.restart)
 	return mux
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) meshUpdate(w http.ResponseWriter, r *http.Request) {
+	var req control.MeshUpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rep, err := s.Node.MeshUpdate(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
+}
+
+func (s *Server) restart(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restarting"})
+	s.Node.RequestRestart()
 }
 
 func (s *Server) ver(w http.ResponseWriter, _ *http.Request) {
@@ -80,7 +110,7 @@ func (s *Server) peers(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) getPolicy(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, viewPolicy(s.Node.Policy()))
+	writeJSON(w, http.StatusOK, s.viewPolicy())
 }
 
 func (s *Server) postPolicy(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +136,12 @@ func (s *Server) postPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err = p.SetService(ch.Service, *ch.On)
+	case "update":
+		if ch.On == nil {
+			http.Error(w, "update op needs on", http.StatusBadRequest)
+			return
+		}
+		err = s.Node.SetRemoteUpdatePolicy(*ch.On)
 	default:
 		http.Error(w, "unknown op", http.StatusBadRequest)
 		return
@@ -114,11 +150,13 @@ func (s *Server) postPolicy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := s.Node.PersistPolicy(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	if ch.Op != "update" {
+		if err := s.Node.PersistPolicy(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, viewPolicy(p))
+	writeJSON(w, http.StatusOK, s.viewPolicy())
 }
 
 func (s *Server) runs(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +192,16 @@ func (s *Server) resource(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
+func (s *Server) resourcePull(w http.ResponseWriter, r *http.Request) {
+	digest := "sha256:" + r.PathValue("hex")
+	res, err := s.Node.Pull(r.Context(), digest)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": res})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 func (s *Server) resourceContent(w http.ResponseWriter, r *http.Request) {
 	digest := "sha256:" + r.PathValue("hex")
 	blob, err := s.Node.OpenResource(r.Context(), digest)
@@ -179,14 +227,16 @@ func (s *Server) resourceContent(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, blob.Body)
 }
 
-func viewPolicy(p *policy.Store) control.PolicyView {
+func (s *Server) viewPolicy() control.PolicyView {
+	p := s.Node.Policy()
 	exec, files, relay := p.Services()
 	return control.PolicyView{
-		Allow: p.AllowList(),
-		Deny:  p.DenyList(),
-		Exec:  exec,
-		Files: files,
-		Relay: relay,
+		Allow:        p.AllowList(),
+		Deny:         p.DenyList(),
+		Exec:         exec,
+		Files:        files,
+		Relay:        relay,
+		RemoteUpdate: s.Node.RemoteUpdatePolicy(),
 	}
 }
 

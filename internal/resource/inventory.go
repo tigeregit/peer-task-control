@@ -21,6 +21,8 @@ type packageManifest struct {
 	CreatedAt *time.Time        `json:"created_at,omitempty"`
 	RunOK     *bool             `json:"run_ok,omitempty"`
 	Pin       bool              `json:"pin,omitempty"`
+	CID       string            `json:"cid,omitempty"`
+	Replica   bool              `json:"replica,omitempty"`
 }
 
 type manifestEntry struct {
@@ -86,7 +88,7 @@ func InventoryAt(packagesDir, casDir string) []Seed {
 			return nil
 		}
 		t := info.ModTime().UTC()
-		by[digest] = Seed{Digest: digest, Kind: "blob", Size: info.Size(), Name: "sha256:" + name[:12], CreatedAt: &t}
+		by[digest] = Seed{Digest: digest, CID: readBlobCID(p), Kind: "blob", Size: info.Size(), Name: "sha256:" + name[:12], CreatedAt: &t}
 		return nil
 	})
 	out := make([]Seed, 0, len(by))
@@ -106,7 +108,7 @@ func loadPackage(dir string) (Seed, bool) {
 	if json.Unmarshal(stripBOM(b), &man) != nil || Normalize(man.Digest) == "" {
 		return Seed{}, false
 	}
-	s := Seed{Digest: Normalize(man.Digest), Name: man.SeedName, Kind: "tree", Unit: man.Unit, Size: man.Size, FileCount: man.FileCount, Pin: man.Pin, RunOK: man.RunOK}
+	s := Seed{Digest: Normalize(man.Digest), CID: man.CID, Replica: man.Replica, Name: man.SeedName, Kind: "tree", Unit: man.Unit, Size: man.Size, FileCount: man.FileCount, Pin: man.Pin, RunOK: man.RunOK}
 	if s.Name == "" {
 		s.Name = filepath.Base(dir)
 	}
@@ -272,6 +274,12 @@ func mergeInfo(a, b Info) Info {
 	}
 	if a.Size == 0 {
 		a.Size = b.Size
+	}
+	if a.CID == "" {
+		a.CID = b.CID
+	}
+	if !a.Replica {
+		a.Replica = b.Replica
 	}
 	if len(a.Files) == 0 {
 		a.Files = b.Files

@@ -152,3 +152,46 @@ func TestVerifyLegacyResourceTree(t *testing.T) {
 		t.Fatal("legacy tree bypassed resource digest verification")
 	}
 }
+
+func TestBitswapPullPersistsReplicaAndCID(t *testing.T) {
+	if !canBind("127.0.0.1") || !canBind("127.0.0.2") {
+		t.Skip("need 127.0.0.1 and 127.0.0.2")
+	}
+	a := startTestNode(t, "source", "127.0.0.1", false, []string{"127.0.0.0/8"})
+	b := startTestNode(t, "target", "127.0.0.2", false, []string{"127.0.0.0/8"})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := b.Probe(ctx, listenHostPort(a)); err != nil {
+		t.Fatal(err)
+	}
+	waitPeers(t, b, 1)
+
+	tree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tree, "asset"), []byte("pulled-scene"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := resource.PublishTreeTo(a.Cfg.PackagesDir(), "scene", tree, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.indexLocalCIDs()
+	res, err := b.PullSeed(ctx, seed.Digest, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AlreadyHad || res.Kind != "tree" || res.CID == "" || res.Path == "" {
+		t.Fatalf("unexpected pull result: %+v", res)
+	}
+	kind, path, got, ok := resource.FindByDigest(b.Cfg.PackagesDir(), b.Cfg.CASDir(), seed.Digest)
+	if !ok || kind != "tree" || !got.Replica || got.CID != res.CID {
+		t.Fatalf("replica not stored: ok=%v kind=%s replica=%v cid=%q want %q path=%s", ok, kind, got.Replica, got.CID, res.CID, path)
+	}
+	digest, _, err := cas.DirDigest(path)
+	if err != nil || digest != seed.Digest {
+		t.Fatalf("stored tree digest %s: %v", digest, err)
+	}
+	again, err := b.PullSeed(ctx, seed.Digest, io.Discard)
+	if err != nil || !again.AlreadyHad {
+		t.Fatalf("second pull should be local: %+v %v", again, err)
+	}
+}

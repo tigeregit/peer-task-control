@@ -51,6 +51,18 @@ type Exec struct {
 	Concurrency int `yaml:"concurrency,omitempty"`
 }
 
+// Update is the policy for remote (mesh) upgrades of this node.
+type Update struct {
+	// AcceptRemote lets trusted mesh peers push a new ptc version to this
+	// node. Nil means on (the default).
+	AcceptRemote *bool `yaml:"accept_remote,omitempty"`
+}
+
+// AcceptsRemoteUpdate reports the update.accept_remote policy (default on).
+func (c *Config) AcceptsRemoteUpdate() bool {
+	return c == nil || c.Update.AcceptRemote == nil || *c.Update.AcceptRemote
+}
+
 type Config struct {
 	Name         string        `yaml:"name"`
 	Listen       string        `yaml:"listen"`
@@ -70,6 +82,7 @@ type Config struct {
 	ScanHosts    []string     `yaml:"scan_hosts,omitempty"`
 	Storage      Storage      `yaml:"storage,omitempty"`
 	Exec         Exec         `yaml:"exec,omitempty"`
+	Update       Update       `yaml:"update,omitempty"`
 	Path         string       `yaml:"-"`
 	TrustedNets  []*net.IPNet `yaml:"-"`
 	PSKBytes     []byte       `yaml:"-"`

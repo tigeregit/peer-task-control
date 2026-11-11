@@ -1,0 +1,59 @@
+apiVersion: ptc/v0
+kind: Prepare
+metadata:
+  name: bitswap-dispatch
+target:
+  services: [exec]
+  require_nvidia: true
+  deny_non_exec: true
+  timeout: 30m
+workspace:
+  working_directory: "."
+  shell: bash
+  entrypoint: src/vector_add.cu
+  timeout: 30m
+layout:
+  directories:
+    - path: in
+      class: permanent
+      writable: false
+    - path: in/sdk
+      class: permanent
+      writable: false
+    - path: src
+      class: temporary
+      writable: false
+    - path: out
+      class: temporary
+      writable: true
+    - path: out/results
+      class: temporary
+      writable: true
+    - path: tmp
+      class: temporary
+      writable: true
+  keep_on_success: false
+  keep_on_failure: true
+seeds:
+  # Already published on the mesh (fake-CUDA e2e SDK, ~2 GiB). The exec node
+  # pulls it with bitswap from mesh holders (nearest first) and verifies the DirDigest.
+  - name: third_party_sdk
+    class: permanent
+    dest: in/sdk
+    digest: sha256:dcefeca789cf079dbd1db45f9c3ecaf73bf9f83fa5bd529b8088e1afe7f7a132
+    required: true
+  - name: vector-add-src
+    class: temporary
+    dest: src
+    local:
+      src: .
+    required: true
+    entrypoint: true
+outputs:
+  - name: results
+    path: out/results
+    class: temporary
+    summary: true
+data:
+  pin_permanent: false
+  evict_temporary_after: 7d
