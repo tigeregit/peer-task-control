@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
@@ -202,8 +201,6 @@ func (n *Node) reserveWithRelays(ctx context.Context) {
 }
 
 func (n *Node) startRelayLoop() {
-	var once sync.Once
-	_ = once
 	go func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
