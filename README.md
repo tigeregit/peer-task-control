@@ -24,6 +24,10 @@
 
 设计草案：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。离线摘要见 [docs/DESIGN.md](docs/DESIGN.md)。
 
+## 下载
+
+预发布版从 [Releases](https://github.com/tigeregit/peer-task-control/releases) 下载对应平台的二进制，并用附件里的 `SHA256SUMS` 校验。推送 `v…` 标签会由 GitHub Actions 自动编译并发布。
+
 ## 要求
 
 - Go 1.23+（开发机已验证 1.27.3）

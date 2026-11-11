@@ -22,3 +22,12 @@
 2. 通过 `go test ./...`。若改了跨网段发现，再跑 `docker compose -f docker/docker-compose.yml up --build --abort-on-container-exit`。
 3. 描述里写：行为变化、如何验证、是否需要改 skill 或 example 配置。
 4. 协议或发现逻辑的变化，要同步 `docs/DESIGN.md`；若与设计 Page 冲突，先更新 Page 再合入。
+
+## 发版
+
+1. 把 `internal/version/version.go` 和 skill 文本里的版本改成同一标识（例如 `0.2.0-p2`）。
+2. 在 `docs/release-notes/v<版本>.md` 写发布说明，文件名必须与即将推送的标签一致。
+3. 合并到 `main` 后打标签并推送：`git tag v0.2.0-p2 && git push origin v0.2.0-p2`。
+4. GitHub Actions 工作流 `.github/workflows/release.yml` 会交叉编译二进制、生成 `SHA256SUMS`，并创建 Release。标签名含 `-`（如 `-p2`、`-rc`）时自动标为预发布。
+
+不要把 `vendor/`、本机 identity、或编译出的二进制提交进仓库。
