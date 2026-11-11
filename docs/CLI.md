@@ -73,9 +73,11 @@ ptc <命令> --help
 
 不需要正在运行的 daemon。
 
-### `ptc install --ssh HOST` / `ptc update [--ssh HOST]`
+### `ptc install --ssh HOST` / `ptc update [--ssh HOST|--mesh]`
 
-从官方 `tigeregit/peer-task-control` Release 下载对应平台的二进制及 `SHA256SUMS`，校验后替换，失败时回滚。无需 daemon；**只替换二进制，不安装服务、不启动或重启 daemon、不协调网格升级**。
+从官方 `tigeregit/peer-task-control` Release 下载对应平台的二进制及 `SHA256SUMS`，校验后替换，失败时回滚。`install` 与 SSH / 本机 `update` 无需 daemon。这些命令**不安装系统服务**。本机 `ptc update` 成功后会写入 `install.json`，并重启正在运行的本机 daemon（可用 `--no-restart` 跳过）。`--mesh` 需要本机 daemon，向已有 `install.json` 且 `update.accept_remote` 为开的节点分阶段推送同一主版本；目标节点用 bitswap 拉取二进制、校验、替换并请求重启。SSH 安装目前只替换远端二进制，不会写入 `install.json`，因此不会自动成为 mesh 更新目标。
+
+mesh 更新和手工 daemon 重启要求目标没有排队或运行中的任务；更新/重启期间拒绝新任务。mesh 更新只有在目标重新通告新版本后才算成功；未重入会标为失败并停止后续批次。`--json` 仍输出单个报告，但出现失败时命令退出码非零。`install.json` 必须指向该 daemon 正在运行的二进制。
 
 ```text
 ptc install --ssh user@linux-node --version 0.2.0-p2
@@ -84,6 +86,10 @@ ptc update --ssh user@windows-node --version 0.2.0-p2 --path C:\Tools\ptc.exe
 ptc update --version 0.2.0-p2
 # Windows: run a different ptc.exe to update a non-running installed copy
 ptc update --version 0.2.0-p2 --path C:\Tools\ptc.exe
+ptc update --version 0.3.0 --no-restart
+ptc update --mesh --version 0.3.0
+ptc update --mesh --dry-run --json
+ptc update --mesh --nodes worker-a,worker-b --batch 1
 ```
 
 | 参数 | 默认值 | 作用 |
@@ -94,12 +100,23 @@ ptc update --version 0.2.0-p2 --path C:\Tools\ptc.exe
 | `--identity` | OpenSSH 默认 | SSH 私钥文件；加密私钥建议通过 ssh-agent 使用。 |
 | `--known-hosts` | OpenSSH 默认 | 替代 known_hosts 文件；不会关闭校验。 |
 | `--port` / `-p` | `22` | SSH 端口。 |
+| `--mesh` | 关 | 由本机 daemon 向可管理节点滚动升级；不能与 `--ssh` 同时使用。 |
+| `--nodes` | 全部可管理节点 | 仅这些节点名或 peer ID。 |
+| `--batch` | `1` | 每阶段并行更新的节点数；上一阶段须重新加入目录后才进入下一阶段。 |
+| `--assets-dir` | 空 | 含各平台二进制和 `SHA256SUMS` 的本地目录，供离线网格使用。 |
+| `--dry-run` | 关 | 只打印 mesh 计划，不改节点。 |
+| `--json` | 关 | 仅 `--mesh`：打印 JSON。 |
+| `--no-restart` | 关 | 本机更新后不重启本机 daemon。 |
 
 SSH 自动探测 Linux amd64/arm64 或原生 Windows amd64；macOS SSH、Windows ARM64、UNC 路径不支持。Linux 默认安装到 `$HOME/.local/bin/ptc`，Windows 为 `%LOCALAPPDATA%\Programs\ptc\ptc.exe`。Windows 通过本机 OpenSSH `scp` 上传二进制和替换脚本，再以短编码 PowerShell 命令启动，避免默认 cmd.exe 的命令长度限制及 Windows SSH 二进制 stdin 问题；因此发起端还须有 `scp`，目标须提供 SFTP。检查 SHA256 和版本，更新时保留原目标 ACL，清理临时部署目录；目标被运行中的进程锁定时会报错。
 
 SSH 必须已配置非交互认证，且 known_hosts 已信任目标；使用 `BatchMode=yes` 和 `StrictHostKeyChecking=yes`，不接受密码提示或未知主机密钥。下载发生在发起命令的本机，使用正常 HTTPS 代理环境。
 
 本机 update 支持 Linux/macOS 自更新。Windows 不能覆盖当前运行的 exe，须从另一个副本执行并用 `--path` 指定未运行的已安装 PTC。显式本机目标必须存在且通过 `ptc version` 探测。SSH 专用的 identity/known-hosts/port 参数不能用于本机模式。
+
+`--dry-run`、`--json`、`--assets-dir`、`--nodes`、`--batch` 只能与 `--mesh` 一起用。
+
+`--mesh` 默认把本机二进制的版本推到网格（也可 `--version` / `latest`）。目标只接受受信对端、同一主版本且不低于当前版本的更新。二进制先进入发起节点的 CAS，再由目标用 bitswap 拉取；不要把它理解成各节点各自访问 GitHub。节点需已有 `data_dir/install.json`（本机 `ptc update` 会写这份清单）。`ptc policy update off` 会把 `update.accept_remote` 设为 false，拒绝远端推送（默认允许）。
 
 ### `ptc daemon`
 
@@ -122,6 +139,7 @@ ptc daemon --config config.yaml --data-dir D:\ptc-data
 - 配置里**不要**填写邻居名单。
 - 启动成功后 stderr 会打印节点名、peer ID 和 API 地址，并提示随后使用 `ptc peers`。
 - 用 Ctrl+C 或 SIGTERM 停止。
+- 本机 `ptc update` 或 mesh 更新替换二进制后，daemon 会按请求重启（Unix 用 exec 保持同一 PID；Windows 先拉起新进程再退出，并用隐藏的 `--wait-pid` 等待旧进程释放端口）。
 
 ### `ptc peers`
 
@@ -200,7 +218,7 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 
 在本机打开只读任务看板，默认监听 `127.0.0.1:18790`。界面为中英双语（可切换），风格接近 agentboard：顶栏、统计卡片、任务列表。点击一条任务可查看类似 GitHub Actions 的运行摘要：状态、触发方式、耗时、作业与步骤、正在运行的步骤，以及日志摘要。
 
-看板会持续显示一条实时任务「网格目录监视 / Mesh catalog watch」，并汇总本机 `--tasks` / `--runs` 以及网格里其他节点公开的运行记录（守护进程 `GET /api/v1/runs` 会向邻居拉取 `/ptc/runs/1.0.0`）。任务和资源列表都支持搜索、状态/类型筛选和排序。顶栏还有「资源」分栏：列出全网种子的大小、所在节点数、创建时间，以及到当前设备（看板所连接的 daemon）的最短中转次数，并支持下载。列表可按列头升序或降序排序；digest 去掉 `sha256:` 前缀，默认只显示哈希前 8 位加 `***`，点眼睛按钮可展开。任务摘要里的结果种子可点进对应资源页。点击「节点」里的某一台设备，可查看硬件信息、历史任务和该节点存储的种子；再点具体任务或种子会跳到对应分栏。CLI 与看板共用同一套本机控制接口和查询语义（`internal/query`）。看板是只读界面：任务 / 资源 / 节点的查看、筛选、排序、搜索和种子下载都可以在 CLI 里用同样的参数完成（`ptc tasks`、`ptc resources`、`ptc peers` / `peers show`）。CLI 额外提供控制能力，看板不会代理这些写操作：`ptc daemon`、`ptc policy`（改白名单 / 黑名单 / 服务开关）、`ptc submit`（本机或 `--target` 下发）、`ptc cancel`、`ptc clean`，以及 `ptc resources show --list-files`（展开超过 100 个文件的目录树）。看板会列出邻居执行完的作业（包括 CUDA），但不能提交或取消。
+看板会持续显示一条实时任务「网格目录监视 / Mesh catalog watch」，并汇总本机 `--tasks` / `--runs` 以及网格里其他节点公开的运行记录（守护进程 `GET /api/v1/runs` 会向邻居拉取 `/ptc/runs/1.0.0`）。任务和资源列表都支持搜索、状态/类型筛选和排序。顶栏还有「资源」分栏：列出全网种子的 digest、bitswap 传输 CID、大小、所在节点数、创建时间，以及到当前设备（看板所连接的 daemon）的最短中转次数，并支持下载。列表可按列头升序或降序排序；digest 去掉 `sha256:` 前缀，默认只显示哈希前 8 位加 `***`，点眼睛按钮可展开。任务摘要里的结果种子可点进对应资源页。点击「节点」里的某一台设备，可查看硬件信息、历史任务和该节点存储的种子；再点具体任务或种子会跳到对应分栏。CLI 与看板共用同一套本机控制接口和查询语义（`internal/query`）。看板是只读界面：任务 / 资源 / 节点的查看、筛选、排序、搜索和种子下载都可以在 CLI 里用同样的参数完成（`ptc tasks`、`ptc resources`、`ptc peers` / `peers show`）。CLI 额外提供控制能力，看板不会代理这些写操作：`ptc daemon`、`ptc policy`（改白名单 / 黑名单 / 服务开关）、`ptc submit`（本机或 `--target` 下发）、`ptc cancel`、`ptc clean`，以及 `ptc resources show --list-files`（展开超过 100 个文件的目录树）。看板会列出邻居执行完的作业（包括 CUDA），但不能提交或取消。
 
 Docker 演示里除了 `gateway` / `worker-a` / `worker-b` 三个容器，还可以在 Windows 本机启动原生 `host` 节点（真实 NVIDIA GPU）：先保证网格已 `up`，再在仓库根目录运行 `powershell -File docker/run-host-node.ps1`。网关通过 `scan_hosts: host.docker.internal` 探测本机 `18765` 端口。停止用 `powershell -File docker/run-host-node.ps1 -Stop`。
 
@@ -234,7 +252,7 @@ Docker 跨网段模拟会把该看板映射到主机的 `http://127.0.0.1:18790`
 
 ### `ptc resources`
 
-列出全网内容种子、查看某个种子，或把它下载下来。与 WebUI 资源分栏共用 `GET /api/v1/resources`（daemon 会向邻居拉取 `/ptc/resources/1.0.0`，并计算从当前节点到各副本的中转次数：直连为 0，经过一层电路中继为 1）。需要 daemon 已在运行。Prepare 步骤会把依赖种子登记为 `packages/seed-<name>` 树（优先硬链接，不另占一份完整拷贝），因此输入数据会和结果种子一起出现在清单里。
+列出全网内容种子、查看某个种子、下载内容，或把副本拉取并保存在本机仓库。与 WebUI 资源分栏共用 `GET /api/v1/resources`（daemon 会向邻居拉取 `/ptc/resources/1.0.0`，并计算从当前节点到各副本的中转次数：直连为 0，经过一层电路中继为 1）。需要 daemon 已在运行。Prepare 步骤会把依赖种子登记为 `packages/seed-<name>` 树（优先硬链接，不另占一份完整拷贝），因此输入数据会和结果种子一起出现在清单里。
 
 不带子命令时等同于 `ptc resources` 列表。
 
@@ -245,26 +263,33 @@ ptc resources --search pred.bin --kind tree --sort size --order desc
 ptc resources --node worker-a
 ptc resources show sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8
 ptc resources get sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8 -o result.tar
+ptc resources pull sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8
+ptc resources pull sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d516c033cd8 --json
 ```
 
 | 子命令 | 作用 |
 | --- | --- |
-| （默认） | 列出种子：digest、名称、类型、大小、所在节点数、创建时间、到当前设备的最短中转次数 |
-| `show DIGEST` | 详细信息：大小、副本、每台设备到当前节点的中转次数与路径（local / direct / relay）；tree 种子按目录为操作单位。超过 100 个文件时默认只打印文件数，需要具体路径时加 `--list-files`；不为每个小文件单独计算 digest |
+| （默认） | 列出种子：digest、bitswap 传输 CID、名称、类型、大小、所在节点数、创建时间、到当前设备的最短中转次数 |
+| `show DIGEST` | 详细信息：digest、传输 CID、大小、副本、每台设备到当前节点的中转次数与路径（local / direct / relay）；tree 种子按目录为操作单位。超过 100 个文件时默认只打印文件数，需要具体路径时加 `--list-files`；不为每个小文件单独计算 digest |
 | `get DIGEST -o FILE` | 从最近的副本下载。tree 种子保存为 tar；省略 `-o` 或 `-o -` 时写到 stdout |
+| `pull DIGEST` | 让本机 daemon 用 bitswap 向持有者拉取该种子，校验 DirDigest（tree）或 sha256（blob）后，作为临时副本写入 `packages/replica-*` 或 CAS，随后本机也可对外提供。已在本机则直接报告路径。可用 `ptc clean resource` 删除副本。`--json` 可用。 |
 
 列表筛选与 WebUI 资源分栏语义相同：
 
 | 参数 | 作用 |
 | --- | --- |
-| `--search` | 在 digest、名称、类型、文件路径和所在设备上做不区分大小写的子串匹配 |
+| `--search` | 在 digest、CID、名称、类型、文件路径和所在设备上做不区分大小写的子串匹配 |
 | `--kind` | `all`、`tree` 或 `blob` |
 | `--node` | 只列出该节点（名称或 peer id）上存有副本的种子 |
 | `--sort` | `name`（默认）、`size`、`kind`、`hops`、`replicas`、`created`、`digest` |
 | `--order` | `asc` 或 `desc`（`size` / `replicas` 默认降序） |
 | `--list-files` | 仅 `show`：列出目录树里的每一条路径。默认在文件数超过 100 时只显示数量，与看板预览规则一致 |
 
-`--json` 适用于列表和 `show`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。CLI / HTTP 仍是内容接口，节点之间优先使用标准 Boxo Bitswap 传输 256KiB 分块：`/ptc/resource-blocks/1.0.0` 仅发现传输 manifest 的 CID，payload 使用标准 Bitswap。旧节点不支持该发现协议时才回退原 tar/blob 协议，校验错误不会静默回退。按跳数依次尝试副本，接收完整并校验 sha256 / DirDigest 后再交付内容。
+`--json` 适用于列表、`show` 和 `pull`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。CLI / HTTP 仍是内容接口，节点之间优先使用标准 Boxo Bitswap 传输 256KiB 分块：`/ptc/resource-blocks/1.0.0` 仅发现传输 manifest 的 CID，payload 使用标准 Bitswap。旧节点不支持该发现协议时才回退原 tar/blob 协议，校验错误不会静默回退。按跳数依次尝试副本，接收完整并校验 sha256 / DirDigest 后再交付内容。
+
+清单和看板上的 CID 是 Bitswap 传输 manifest 的 raw SHA-256 CID，不是 UnixFS CID；持有者在首次导出或后台索引后保存并通告它。`testdata/bitswap-dispatch` 提供只按 digest 引用约 2 GiB SDK 的派发样例。
+
+pull 的块数、字节数和 MiB/s 是逻辑取块统计，包含索引、缓存命中与重复引用，不代表实际网络流量或线速；provider 表示请求时选定的资源持有者，不是 Bitswap 每个实际供块 peer 的精确归因。树资源的 CID 保存为资源目录外的 `.cid` sidecar，避免修改传输内容自身。
 
 输入仍是 PTC sha256 摘要，不支持直接使用 CID / dataset / UnixFS 输入。单资源超过 10,000 个 256KiB 分块时自动切换为 v2 多层 Merkle 索引，每页最多 256 个引用；无需手动分卷，也不把整个资源或全部块引用放进内存。小资源仍生成 v1 manifest，新节点兼容读取 v1。旧 Bitswap 节点不支持 v2 大资源，提供者与接收者均须升级；格式或校验错误不会回退旧协议。资源大小使用 int64，实际仍受可用磁盘空间、单块 20 秒和总计 30 分钟超时限制。每条中继连接在任一方向累计 64 GiB 或持续 30 分钟后会被重置；超大或慢速传输不保证在重置后无缝继续。以上不代表已经实测 TB 级传输。目录的 tar 开销计入传输大小。
 
@@ -310,6 +335,7 @@ deny:  (empty: accept all peers in trusted CIDRs)
 exec:  true
 files: true
 relay: false
+update (accept mesh updates): true
 ```
 
 名单非空时，条目以逗号加空格拼接。空名单表示：在受信任网段内，不另做成员限制（黑名单仍优先）。
@@ -329,6 +355,10 @@ relay: false
 打开或关闭本机某项服务。服务名只能是 `exec`、`files`、`relay`。开关除 `on` / `off` 外，也接受 `true`、`1`、`enable`、`enabled` 和 `false`、`0`、`disable`、`disabled`（不区分大小写）。
 
 目录里仍能看到该节点，只是对应服务会标为不可用，并给出原因（例如 `service exec is disabled on this host`）。把 `exec` 打开并不等于一定对外提供执行：本机还需要有 NVIDIA GPU。
+
+#### `ptc policy update <on|off>`
+
+允许或拒绝受信对端把新版本推到本机（`update.accept_remote`，默认允许）。写入配置文件的 `update.accept_remote` 字段。
 
 ## 配置文件
 
@@ -352,6 +382,7 @@ YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不�
 | `services.relay` | 布尔 | `false` | 是否作为网关：扫描受信任网段并推送目录。无 GPU 的白名单主机应开这个、并关闭 `exec`。 |
 | `policy.allow` | 字符串列表 | `[]` | 本机白名单。 |
 | `policy.deny` | 字符串列表 | `[]` | 本机黑名单，优先于白名单。 |
+| `update.accept_remote` | 布尔 | `true` | 是否接受受信任节点发起的同主版本网格升级。可用 `ptc policy update` 修改。 |
 | `scan_interval` | 时长 | `30s` | 网关扫描受信任网段的间隔。小于等于 0 时回落到 30s。 |
 | `disable_mdns` | 布尔 | `false` | 为 true 时不做 mDNS 发现。Docker 跨网段测试会用到。 |
 | `scan_hosts` | 字符串列表 | `[]` | 网关在 CIDR 扫描之外额外探测的目标（主机名、IP，或 `host:port`）。解析到的地址也会被连接门禁放行。Docker 演示里网关用 `host.docker.internal` 找到 Windows 本机节点，而不去扫描整个 Docker Desktop 虚拟网段。 |
@@ -362,7 +393,7 @@ YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不�
 
 ## 本机控制 API
 
-CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`）。只接受来自 loopback 的请求，超时 5s。这不是对外的网格协议。
+CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`）。只接受来自 loopback 的请求，默认超时 5s。拉取资源与网格升级的客户端超时更长（`pull` 最多 6 小时，`--mesh` 最多 3 小时）。这不是对外的网格协议。
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
@@ -376,9 +407,12 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | `GET` | `/api/v1/resources` | 全网种子清单（含所在设备与 hop 数）。可选查询参数：`q`/`search`、`kind`、`node`、`sort`、`order`（与 `ptc resources` 相同） |
 | `GET` | `/api/v1/resources/sha256/{hex}` | 单个种子的大小、副本与 hop 信息 |
 | `GET` | `/api/v1/resources/sha256/{hex}/content` | 下载该种子（tree 为 tar） |
+| `POST` | `/api/v1/resources/sha256/{hex}/pull` | 用 bitswap 把该种子拉进本机仓库（超时按大文件拉取放宽） |
 | `POST` | `/api/v1/exec?target=<name>&follow=1` | 本机 daemon 把请求体中的 bundle 下发到目标；follow 时返回 NDJSON 事件 |
 | `GET` | `/api/v1/queue` | 网格内排队中 / 正在运行的作业 |
 | `POST` | `/api/v1/cancel` | `{"id":"<run-id 或 job-id>"}`，取消排队或运行中的作业 |
+| `POST` | `/api/v1/update/mesh` | 滚动升级请求（`version`、`nodes`、`batch`、`assets_dir`、`dry_run`） |
+| `POST` | `/api/v1/update/restart` | 请求本机 daemon 用已替换的二进制重新 exec |
 
 `POST /api/v1/policy` 请求体：
 
@@ -388,9 +422,10 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 {"op":"deny_add","spec":"bad-node"}
 {"op":"deny_rm","spec":"bad-node"}
 {"op":"service","service":"exec","on":false}
+{"op":"update","on":false}
 ```
 
-`op` 只能是 `allow_add`、`allow_rm`、`deny_add`、`deny_rm`、`service`。未知 `op`、空条目或非法服务名返回 HTTP 400。
+`op` 只能是 `allow_add`、`allow_rm`、`deny_add`、`deny_rm`、`service`、`update`。未知 `op`、空条目或非法服务名返回 HTTP 400。
 
 ### `ptc submit`
 

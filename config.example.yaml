@@ -61,3 +61,8 @@ scan_interval: 30s
 # 允许其他受信任节点经协议远程清理本机种子 / 工作树 / 记录。默认关闭。
 # ptc clean 默认只作用于本机。
 # policy.remote_clean: false
+
+# 是否接受受信任、已记录安装的对端发起的同主版本网格升级。默认开启。
+# 运行时可用 ptc policy update off 关闭。
+# update:
+#   accept_remote: true
