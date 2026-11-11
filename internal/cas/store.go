@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Store is a local sha256 content store. Mesh bitswap fetch is not implemented here.
+// Store is a local sha256 content store. The node handles mesh transfers.
 type Store struct {
 	Root string
 }
@@ -60,7 +60,7 @@ func (s *Store) PutFile(src string) (digest string, err error) {
 func (s *Store) Materialize(digest, dest string) error {
 	src := s.Path(digest)
 	if _, err := os.Stat(src); err != nil {
-		return fmt.Errorf("cas missing %s (mesh seed fetch is not implemented; place the blob in the local store or use seeds.local)", digest)
+		return fmt.Errorf("cas missing %s (fetch it through the daemon or use seeds.local)", digest)
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err

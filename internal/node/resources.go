@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"time"
 
@@ -32,6 +33,7 @@ type resourcesMessage struct {
 	Kind   string          `json:"kind,omitempty"`
 	Size   int64           `json:"size,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	Root   string          `json:"root,omitempty"`
 }
 
 func (n *Node) localResourceInfos() []resource.Info {
@@ -167,6 +169,10 @@ func (n *Node) handleResources(s network.Stream) {
 	if err != nil {
 		return
 	}
+	if d := n.resourcePeerDecision(s.Conn().RemotePeer()); !d.Allow {
+		_ = writeResMsg(s, resourcesMessage{Type: msg.Type, Error: "policy refused files: " + d.Reason})
+		return
+	}
 	switch msg.Type {
 	case "list":
 		seeds := resource.InventoryAt(n.Cfg.PackagesDir(), n.Cfg.CASDir())
@@ -243,6 +249,9 @@ func (n *Node) fetchResourceShow(ctx context.Context, id, digest string) ([]reso
 
 // OpenResource opens a seed locally or from the closest replica.
 func (n *Node) OpenResource(ctx context.Context, digest string) (resource.Blob, error) {
+	if ctx == nil {
+		ctx = n.ctx
+	}
 	digest = resource.Normalize(digest)
 	if digest == "" {
 		return resource.Blob{}, fmt.Errorf("invalid digest")
@@ -254,23 +263,41 @@ func (n *Node) OpenResource(ctx context.Context, digest string) (resource.Blob, 
 	if err != nil {
 		return resource.Blob{}, err
 	}
-	var best *resource.Location
-	for i := range info.Locations {
-		loc := &info.Locations[i]
+	sort.SliceStable(info.Locations, func(i, j int) bool {
+		a, b := info.Locations[i], info.Locations[j]
+		return a.Hops < b.Hops || (a.Hops == b.Hops && a.Connected && !b.Connected)
+	})
+	var last error
+	for _, loc := range info.Locations {
 		if loc.Local || loc.PeerID == n.Host.ID().String() {
 			continue
 		}
-		if best == nil || loc.Hops < best.Hops || (loc.Hops == best.Hops && loc.Connected && !best.Connected) {
-			best = loc
+		blob, err := n.fetchBlob(ctx, loc.PeerID, digest)
+		if err == nil {
+			return blob, nil
+		}
+		last = err
+		if ctx.Err() != nil {
+			return resource.Blob{}, ctx.Err()
 		}
 	}
-	if best == nil {
-		return resource.Blob{}, fmt.Errorf("seed %s has no reachable replica", digest)
+	if last != nil {
+		return resource.Blob{}, fmt.Errorf("seed %s: all replicas failed: %w", digest, last)
 	}
-	return n.fetchBlob(ctx, best.PeerID, digest)
+	return resource.Blob{}, fmt.Errorf("seed %s has no reachable replica", digest)
 }
 
 func (n *Node) fetchBlob(ctx context.Context, id, digest string) (resource.Blob, error) {
+	if n.blocks != nil {
+		blob, err := n.fetchBlocks(ctx, id, digest)
+		if !isLegacyResourcePeer(err) {
+			return blob, err
+		}
+	}
+	return n.fetchLegacyBlob(ctx, id, digest)
+}
+
+func (n *Node) fetchLegacyBlob(ctx context.Context, id, digest string) (resource.Blob, error) {
 	pid, err := peer.Decode(id)
 	if err != nil {
 		return resource.Blob{}, err

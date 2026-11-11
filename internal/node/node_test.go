@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -18,12 +19,24 @@ import (
 
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// Discovery needs UDP on the same port; Windows may reserve UDP-only ranges.
+	for i := 0; i < 128; i++ {
+		address := net.JoinHostPort("127.0.0.1", fmt.Sprint(20000+rand.IntN(40000)))
+		u, err := net.ListenPacket("udp", address)
+		if err != nil {
+			continue
+		}
+		port := u.LocalAddr().(*net.UDPAddr).Port
+		l, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)))
+		_ = u.Close()
+		if err != nil {
+			continue
+		}
+		_ = l.Close()
+		return port
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatal("no port available for both TCP and UDP")
+	return 0
 }
 
 func canBind(ip string) bool {
@@ -71,6 +84,27 @@ func startTestNode(t *testing.T, name, listenIP string, relay bool, cidrs []stri
 
 func listenHostPort(n *Node) string {
 	return n.Cfg.Listen
+}
+
+func TestFailedRestartPreservesRunningDaemonLock(t *testing.T) {
+	first := startTestNode(t, "running", "127.0.0.1", false, []string{"127.0.0.0/8"})
+	cfg := config.Defaults()
+	cfg.DataDir = first.Cfg.DataDir
+	cfg.Listen = net.JoinHostPort("127.0.0.1", fmt.Sprint(freePort(t)))
+	cfg.API = first.APIAddr()
+	cfg.TrustedCIDRs = []string{"127.0.0.0/8"}
+	cfg.DisableMDNS = true
+	if err := cfg.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if second, err := Start(context.Background(), cfg, nil); err == nil {
+		second.Close()
+		t.Fatal("restart unexpectedly bound occupied API")
+	}
+	lock, err := control.ReadLock(first.Cfg.LockPath())
+	if err != nil || lock.PeerID != first.Host.ID().String() {
+		t.Fatalf("failed restart removed running daemon lock: %+v, %v", lock, err)
+	}
 }
 
 func findPeer(list []catalog.Entry, name string) (catalog.Entry, bool) {

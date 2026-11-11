@@ -227,7 +227,7 @@ func (c *Config) RunsDir() string {
 }
 
 func (c *Config) FetchTmpDir() string {
-	return filepath.Join(c.WorktreesDir(), ".fetch")
+	return filepath.Join(c.SeedsDir(), ".fetch")
 }
 
 func (c *Config) QueueDir() string {

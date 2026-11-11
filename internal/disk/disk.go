@@ -39,6 +39,8 @@ func Measure(cfg *config.Config) Usage {
 	cas := cfg.CASDir()
 	u.SeedsBytes, u.OutputsBytes = splitPackages(pkg)
 	u.SeedsBytes += dirSize(cas)
+	u.SeedsBytes += dirSize(filepath.Join(cfg.SeedsDir(), "blocks"))
+	u.SeedsBytes += dirSize(cfg.FetchTmpDir())
 	u.WorktreesBytes = dirSize(cfg.WorktreesDir())
 	u.RecordsBytes = dirSize(cfg.RunsDir())
 

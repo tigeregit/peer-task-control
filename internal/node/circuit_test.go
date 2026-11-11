@@ -169,6 +169,13 @@ func TestCircuitBlobTransfer(t *testing.T) {
 	if n != want {
 		t.Fatalf("got %d bytes, want %d (relay default cap is 128KiB)", n, want)
 	}
+	if route := b.RouteTo(aid.String()); route.Hops != 1 {
+		t.Fatalf("Bitswap transfer did not retain the relay path: %+v", route)
+	}
+	blocks, err := os.ReadDir(filepath.Join(b.Cfg.SeedsDir(), "blocks"))
+	if err != nil || len(blocks) == 0 {
+		t.Fatalf("relay transfer did not use Bitswap: blocks=%d, err=%v", len(blocks), err)
+	}
 }
 
 func bytesOf(n int, v byte) []byte {

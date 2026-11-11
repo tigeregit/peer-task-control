@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	manet "github.com/multiformats/go-multiaddr/net"
 
 	"github.com/tigeregit/peer-task-control/internal/api"
+	"github.com/tigeregit/peer-task-control/internal/bitswap"
 	"github.com/tigeregit/peer-task-control/internal/caps"
 	"github.com/tigeregit/peer-task-control/internal/catalog"
 	"github.com/tigeregit/peer-task-control/internal/config"
@@ -53,21 +55,23 @@ type Node struct {
 	Store   *policy.Store
 	Caps    caps.Info
 
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mdns      mdns.Service
-	apiLn     net.Listener
-	httpSrv   *http.Server
-	mu        sync.Mutex
-	localTime time.Time
-	scanNow   chan struct{}
-	selfAddrs map[string]struct{}
-	queue     *dispatch.Queue
-	follows   *execFollowers
-	cancels   map[string]context.CancelFunc
-	execKick  chan struct{}
-	disk      disk.Usage
-	diskAt    time.Time
+	ctx         context.Context
+	cancel      context.CancelFunc
+	mdns        mdns.Service
+	apiLn       net.Listener
+	httpSrv     *http.Server
+	mu          sync.Mutex
+	localTime   time.Time
+	scanNow     chan struct{}
+	selfAddrs   map[string]struct{}
+	queue       *dispatch.Queue
+	follows     *execFollowers
+	cancels     map[string]context.CancelFunc
+	execKick    chan struct{}
+	disk        disk.Usage
+	diskAt      time.Time
+	blocks      *bitswap.Exchange
+	lockWritten bool
 }
 
 func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node, error) {
@@ -127,11 +131,19 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	n.refreshSelfAddrs()
 	n.Catalog.Put(n.LocalEntry())
 
+	n.blocks, err = bitswap.New(ctx, h, filepath.Join(cfg.SeedsDir(), "blocks"), n.allowResourcePeer)
+	if err != nil {
+		cancel()
+		_ = h.Close()
+		return nil, fmt.Errorf("bitswap: %w", err)
+	}
 	h.SetStreamHandler(ProtocolCatalog, n.handleCatalog)
 	h.SetStreamHandler(ProtocolRuns, n.handleRuns)
 	h.SetStreamHandler(ProtocolResources, n.handleResources)
+	h.SetStreamHandler(ProtocolResourceBlocks, n.handleResourceBlocks)
 	if err := n.initExec(); err != nil {
 		cancel()
+		_ = n.blocks.Close()
 		_ = h.Close()
 		return nil, err
 	}
@@ -160,6 +172,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 		_ = n.Close()
 		return nil, err
 	}
+	n.lockWritten = true
 
 	if err := ident.ServeUDP(ctx, cfg.Listen, h.ID().String(), log); err != nil {
 		n.Log.Warn("identity UDP probe not started; gateway scan will not work", "err", err)
@@ -183,7 +196,11 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 
 func (n *Node) Close() error {
 	n.cancel()
-	control.RemoveLock(n.Cfg.LockPath())
+	if n.lockWritten {
+		if lock, err := control.ReadLock(n.Cfg.LockPath()); err == nil && lock.PID == os.Getpid() && lock.PeerID == n.Host.ID().String() {
+			control.RemoveLock(n.Cfg.LockPath())
+		}
+	}
 	if n.httpSrv != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		_ = n.httpSrv.Shutdown(ctx)
@@ -194,6 +211,9 @@ func (n *Node) Close() error {
 	}
 	if n.mdns != nil {
 		_ = n.mdns.Close()
+	}
+	if n.blocks != nil {
+		_ = n.blocks.Close()
 	}
 	if n.Host != nil {
 		return n.Host.Close()

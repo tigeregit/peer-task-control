@@ -69,3 +69,21 @@ func TestSplitPackages(t *testing.T) {
 		t.Fatalf("outputs=%d", u.OutputsBytes)
 	}
 }
+
+func TestMeasureIncludesBitswapAndStagingOnSeedVolume(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.DataDir = t.TempDir()
+	cfg.Storage.SeedsDir = t.TempDir()
+	for _, name := range []string{"blocks", ".fetch"} {
+		dir := filepath.Join(cfg.SeedsDir(), name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "data"), []byte("12345"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := Measure(cfg).SeedsBytes; got != 10 {
+		t.Fatalf("seed disk usage excluded blocks or staging: got %d", got)
+	}
+}
