@@ -205,3 +205,28 @@ func TestRemoteScanRequiresRelayAndPolicyPermission(t *testing.T) {
 		t.Fatalf("rejected requests consumed cooldown, or files policy controlled relay scan: %v", err)
 	}
 }
+
+func TestInterfaceScanHostsCoversSubnetAndSkipsLoopback(t *testing.T) {
+	mustNet := func(s string) *net.IPNet {
+		ip, n, err := net.ParseCIDR(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n.IP = ip // net.InterfaceAddrs reports the host IP, not the network
+		return n
+	}
+	trusted := func(net.IP) bool { return true }
+	addrs := []net.Addr{mustNet("127.0.0.1/8"), mustNet("10.1.2.200/24")}
+	got := interfaceScanHosts(addrs, trusted)
+	if len(got) != 254 {
+		t.Fatalf("got %d hosts, want the 254 hosts of 10.1.2.0/24", len(got))
+	}
+	for _, ip := range got {
+		if ip.IsLoopback() {
+			t.Fatalf("loopback %s must not be probed", ip)
+		}
+	}
+	if !got[0].Equal(net.IPv4(10, 1, 2, 1)) {
+		t.Fatalf("first host = %s, want 10.1.2.1 (below the interface IP)", got[0])
+	}
+}

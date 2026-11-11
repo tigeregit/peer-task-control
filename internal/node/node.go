@@ -618,17 +618,27 @@ func (n *Node) localTrustedHosts() []net.IP {
 	if err != nil {
 		return nil
 	}
+	return interfaceScanHosts(addrs, n.Cfg.InTrustedIP)
+}
+
+func interfaceScanHosts(addrs []net.Addr, trusted func(net.IP) bool) []net.IP {
 	var lists [][]net.IP
 	for _, a := range addrs {
 		ipn, ok := a.(*net.IPNet)
 		if !ok || ipn.IP == nil {
 			continue
 		}
-		if !n.Cfg.InTrustedIP(ipn.IP) {
+		// Every loopback address on our listen port is this node; probing
+		// 127.0.0.0/24 costs one dial timeout per address. Use scan_hosts
+		// for same-host peers on other ports.
+		if ipn.IP.IsLoopback() || !trusted(ipn.IP) {
 			continue
 		}
 		// Probe the interface's own subnet, but not a huge supernet from config.
-		lists = append(lists, scan.Hosts(narrow(ipn)))
+		// Interface addrs carry the host IP; scan.Hosts walks from n.IP, so
+		// start at the network address to cover the whole subnet.
+		subnet := &net.IPNet{IP: ipn.IP.Mask(ipn.Mask), Mask: ipn.Mask}
+		lists = append(lists, scan.Hosts(narrow(subnet)))
 	}
 	return scan.UniqueIPs(lists...)
 }
