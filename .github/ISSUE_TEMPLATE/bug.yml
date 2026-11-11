@@ -1,55 +1,55 @@
-name: 缺陷报告
-description: 报告一个可复现的错误
+name: Bug report
+description: Report a reproducible error
 title: "[bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        请先阅读 [docs/CONTRIBUTING.md](https://github.com/tigeregit/peer-task-control/blob/main/docs/CONTRIBUTING.md)。
-        **不要**粘贴 PSK、SSH 私钥、identity.key 或其他凭证。
+        Please read [docs/CONTRIBUTING.md](https://github.com/tigeregit/peer-task-control/blob/main/docs/CONTRIBUTING.md) first (Chinese: [docs/zh/CONTRIBUTING.md](https://github.com/tigeregit/peer-task-control/blob/main/docs/zh/CONTRIBUTING.md)).
+        **Do not** paste a PSK, SSH private key, identity.key, or any other credential.
   - type: textarea
     id: version
     attributes:
       label: ptc version
-      description: 请粘贴 `ptc version` 的完整输出。
+      description: Paste the full output of `ptc version`.
       placeholder: 0.3.0-dev
     validations:
       required: true
   - type: input
     id: os
     attributes:
-      label: 操作系统
+      label: Operating system
       placeholder: Windows 11 / Ubuntu 22.04
     validations:
       required: true
   - type: dropdown
     id: segment
     attributes:
-      label: 是否跨网段
+      label: Cross-segment?
       options:
-        - 同网段
-        - 跨网段（经网关）
-        - 不清楚
+        - Same segment
+        - Cross-segment (through a gateway)
+        - Not sure
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: 复现步骤
-      description: 相关配置可以打码后附上，但不要包含密钥。
+      label: Reproduction steps
+      description: You may attach redacted config, but do not include secrets.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: 期望行为
+      label: Expected behavior
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: 实际行为
-      description: 可附日志摘要。组网问题请附打码后的 `ptc peers` 输出（可保留节点名和角色）。
+      label: Actual behavior
+      description: You may attach a log summary. For mesh issues, attach a redacted `ptc peers` output (node names and roles may stay).
     validations:
       required: true

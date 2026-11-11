@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: 使用问题
+  - name: Usage questions
     url: https://github.com/tigeregit/peer-task-control/blob/main/docs/CONTRIBUTING.md
-    about: 提问前请先阅读贡献与排障规则，以及 docs/CLI.md。
+    about: Please read the contributing and troubleshooting guide, and docs/CLI.md, before asking. A Chinese guide is at docs/zh/CONTRIBUTING.md.

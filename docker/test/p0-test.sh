@@ -31,7 +31,7 @@ peers_json() {
   exec_in "$1" ptc peers --data-dir /data --json
 }
 
-phase "P0-C.1 网段隔离（计算节点不能直连另一网段）"
+phase "P0-C.1 Segment isolation (compute nodes cannot dial the other segment directly)"
 if exec_in worker-a tcpprobe 10.87.1.10:18765; then
   fail "worker-a should not reach worker-b (10.87.1.10:18765)"
 fi
@@ -40,18 +40,18 @@ if exec_in worker-b tcpprobe 10.87.0.10:18765; then
 fi
 pass "worker-a and worker-b cannot connect across segments"
 
-phase "P0-C.2 网关可达（白名单网关能拨两个网段）"
+phase "P0-C.2 Gateway reachability (the allow-listed gateway can dial both segments)"
 exec_in gateway tcpprobe 10.87.0.10:18765 || fail "gateway cannot reach worker-a"
 exec_in gateway tcpprobe 10.87.1.10:18765 || fail "gateway cannot reach worker-b"
 pass "gateway reaches both workers"
 
-phase "P0-C.3 等待 daemon API"
+phase "P0-C.3 Wait for the daemon API"
 wait_api worker-a
 wait_api worker-b
 wait_api gateway
 pass "all three daemon APIs are up"
 
-phase "P0-C.4 经网关发现完整邻居目录"
+phase "P0-C.4 Discover the full neighbor catalog through the gateway"
 ok=0
 i=0
 while [ "$i" -lt 45 ]; do
@@ -79,7 +79,7 @@ if [ "$ok" -ne 1 ]; then
 fi
 pass "each node sees the other two via the gateway catalog"
 
-phase "P0-C.5 角色：网关无 NVIDIA、不可作为执行目标；计算节点可执行"
+phase "P0-C.5 Roles: the gateway has no NVIDIA GPU and must not be an execution target; compute nodes can execute"
 ja=$(peers_json worker-a)
 table=$(exec_in worker-a ptc peers --data-dir /data)
 echo "$table"

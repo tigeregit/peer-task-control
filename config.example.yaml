@@ -1,86 +1,86 @@
-# peer-task-control 节点配置。不需要填写邻居名单。
-# 复制到数据目录的 config.yaml，或用 ptc daemon --config 指定。
+# peer-task-control node config. You do not need to list neighbors.
+# Copy this to config.yaml in the data directory, or pass it with ptc daemon --config.
 
-# 节点显示名，默认是主机名。
+# Display name of the node. Defaults to the hostname.
 # name: iamsbb2
 
-# 组网监听，固定端口 18765。
+# Mesh listen address. The port is fixed at 18765.
 listen: 0.0.0.0:18765
 
-# 本机 CLI / 控制 API，默认只绑 loopback。
+# Local CLI / control API. Bind to loopback by default.
 api: 127.0.0.1:18780
 
-# 数据与身份密钥目录。留空则用系统用户配置目录下的 ptc。
+# Data and identity-key directory. Leave empty to use ptc under the system user config directory.
 # data_dir: ""
 
-# 受信任网段。来自这些网段的设备都被视为可信；网段外的连接一律拒绝。
-# 至少写一条。本机测试可加上 127.0.0.0/8。
+# Trusted segments. Devices in these CIDRs are treated as trusted; connections from outside are always refused.
+# At least one entry is required. For local testing you may add 127.0.0.0/8.
 trusted_cidrs:
   - 192.168.0.0/16
   - 10.0.0.0/8
 
-# 可选。32 字节密钥的 hex（64 个字符），只用来挡住网段外的误连。
-# 集群内所有节点必须相同。留空表示不启用。
+# Optional. Hex of a 32-byte key (64 characters). Only used to block accidental connections from outside the segments.
+# Every node in the cluster must use the same value. Leave empty to disable.
 # psk: ""
 
-# 本机提供的服务。exec 若本机没有 NVIDIA GPU，目录里仍会标为不可用。
+# Services this host offers. If exec is on but this machine has no NVIDIA GPU, the catalog still marks it unavailable.
 services:
   exec: true
   files: true
   relay: false
 
-# 本机操作策略。名单为空且功能开启，表示接受受信任网段内所有对端。
-# 条目可以是 IP、CIDR、节点名或 peer ID。
+# Local operational policy. An empty list with the feature on means every peer in the trusted segments is accepted.
+# An entry may be an IP, a CIDR, a node name, or a peer ID.
 policy:
   allow: []
   deny: []
 
-# 扫描周期。0s 表示无限间隔：只在启动时扫描一次，之后被动发现邻居。
-# 正数（例如 5m）表示每次扫描完成后等待该周期，再扫描一次。
-# relay 扫描全部受信任网段；普通节点只扫描本机受信任网段。
+# Scan period. 0s means an infinite interval: scan once at start, then discover neighbors passively.
+# A positive value (for example 5m) waits that long after each scan finishes, then scans again.
+# A relay scans every trusted segment; an ordinary node only scans its own trusted segments.
 scan_interval: 0s
 
-# 手动触发扫描的全局最小间隔。默认 60s，须为正数。
-# 本机 ptc scan 和所有远端请求共享额度，不按请求节点分别计算。
-# 正在扫描/等待扫描时拒绝重复触发；被拒绝的请求不会延长冷却期。
+# Global minimum interval for manually triggered scans. Default 60s; must be positive.
+# Local ptc scan and every remote request share one budget; it is not counted per requesting node.
+# A duplicate trigger is refused while a scan is running or waiting. A refused request does not extend the cooldown.
 scan_min_interval: 60s
 
-# 额外探测目标（主机名、IP，或 host:port）。解析到的地址也会被准入。
-# 用来把本机 Windows 节点接到 Docker 网格：gateway 写 host.docker.internal。
+# Extra probe targets (hostname, IP, or host:port). Resolved addresses are also admitted.
+# Used to join a local Windows node to a Docker mesh: the gateway should list host.docker.internal.
 # scan_hosts:
 #   - host.docker.internal
 
-# 独立的数据路径。留空则都放在 data_dir 下。可把工作树放到更快的盘，
-# 例如 Windows 上的 D:\ptc\worktrees。也可用环境变量或命令行覆盖：
+# Independent data paths. Leave empty to keep everything under data_dir. You can put worktrees on a faster disk,
+# for example D:\ptc\worktrees on Windows. These can also be overridden by environment variables or flags:
 #   PTC_SEEDS_DIR / --seeds-dir
 #   PTC_WORKTREES_DIR / --worktrees-dir
 #   PTC_RUNS_DIR / --runs-dir
 #   PTC_DATA_DIR / --data-dir
 # storage:
-#   seeds_dir: ""        # 其下是 cas/ 和 packages/（种子与结果包）
-#   worktrees_dir: ""    # 每次运行物化出的工作树；清工作树不会删种子
-#   runs_dir: ""         # 运行记录和作业队列
-#   size_limit: 40GB     # packages（含输出）+ CAS + Bitswap blocks + .fetch 合计
-#   delete_size: 20GB    # 每轮自动清理目标；省略时为 size_limit 的一半
-#   workspace_limit: 0  # 全部 workspace 合计；0 表示不限制
+#   seeds_dir: ""        # contains cas/ and packages/ (seeds and result packages)
+#   worktrees_dir: ""    # worktree materialized for each run; cleaning worktrees does not delete seeds
+#   runs_dir: ""         # run records and the job queue
+#   size_limit: 40GB     # packages (including output) + CAS + Bitswap blocks + .fetch, combined
+#   delete_size: 20GB    # automatic cleanup target per round; defaults to half of size_limit when omitted
+#   workspace_limit: 0  # combined size of all workspaces; 0 means unlimited
 #
-# workspace 不得与上述实际做种目录相同或互相嵌套（解析符号链接后校验）。
-# 默认 data_dir 只是共同父目录，worktrees/ 与 cas/、packages/ 等仍然分离。
-# 完成、失败、取消的任务立即回收 workspace；输入和输出都作为普通种子保留。
-# free < size_limit 时：实际上限=max(0, free-1GB)，清理目标按原配置比例缩放。
-# 例如 40GB/20GB、free=11GB，则实际为 10GB/5GB。
-# 仅在对端完整校验并持久承诺保留另一份副本后才删除本机数据；
-# 无足够安全副本时会明确报错，不会删除唯一、pin 或活跃任务需要的数据。
+# A workspace must not be the same as, or nested with, the actual seeding directories above (checked after resolving symlinks).
+# The default data_dir is only a shared parent; worktrees/ stays separate from cas/, packages/, and the rest.
+# Workspaces of finished, failed, or cancelled jobs are reclaimed immediately. Inputs and outputs are kept as ordinary seeds.
+# When free < size_limit: effective cap = max(0, free-1GB), and the cleanup target is scaled by the original ratio.
+# For example, 40GB/20GB with free=11GB becomes 10GB/5GB.
+# Local data is deleted only after a peer has fully verified another replica and persisted a retention commitment.
+# If there is no sufficiently safe replica, the node errors clearly and does not delete unique, pinned, or active-job data.
 
-# 执行节点同时跑几个作业。默认 1，后来的作业排队。
+# How many jobs an exec node runs at once. Default 1; later jobs queue.
 # exec:
 #   concurrency: 1
 
-# 允许其他受信任节点经协议远程清理本机种子 / 工作树 / 记录。默认关闭。
-# ptc clean 默认只作用于本机。
+# Allow other trusted nodes to clean local seeds / worktrees / records over the protocol. Off by default.
+# ptc clean applies only locally by default.
 # policy.remote_clean: false
 
-# 是否接受受信任、已记录安装的对端发起的同主版本网格升级。默认开启。
-# 运行时可用 ptc policy update off 关闭。
+# Whether to accept a same-major-version mesh upgrade from a trusted peer that has a recorded install. On by default.
+# Turn it off at runtime with ptc policy update off.
 # update:
 #   accept_remote: true

@@ -1,14 +1,14 @@
-感谢提交。请确认：
+Thanks for the contribution. Please confirm:
 
-- [ ] 对应一个 issue，或在下面写清要解决的问题
-- [ ] 已运行 `go test ./...`
-- [ ] 若改了跨网段发现，已按 [docker/README.md](../docker/README.md) 跑 `docker/test` 下的 P0-C 测试
-- [ ] 若改了 skill 文本，仓库根目录 `SKILL.md` 与 `cmd/ptc/skill/` 保持同步，且 `go test ./cmd/ptc -run TestSkill` 通过
+- [ ] This change has a matching issue, or the problem it solves is described below
+- [ ] `go test ./...` has been run
+- [ ] If cross-segment discovery changed, the P0-C tests under `docker/test` have been run as described in [docker/README.md](../docker/README.md)
+- [ ] If skill text changed, the repository-root `SKILL.md` stays in sync with `cmd/ptc/skill/`, and `go test ./cmd/ptc -run TestSkill` passes
 
-## 做了什么
+## What changed
 
-## 如何验证
+## How to verify
 
-## 备注
+## Notes
 
-协议或发现逻辑的变化请同步 `docs/DESIGN.md`。不要提交身份密钥、PSK、SSH 凭证或编译出的二进制。
+Protocol or discovery changes should update `docs/DESIGN.md` and `docs/zh/DESIGN.md`. Do not commit identity keys, a PSK, SSH credentials, or built binaries.

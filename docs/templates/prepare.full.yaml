@@ -1,57 +1,57 @@
-# ptc Prepare 完整配置模板（full settings）
-# 被 workflow 中 Prepare 步骤的 with.file 指向。
-# 解析本文件应得到：workspace 环境、目录结构、文件获取种子。
-# 复制后按实际任务改值。被注释的键是可选的，需要时取消注释。
+# Full ptc Prepare settings template.
+# Pointed at by with.file of the Prepare step in a workflow.
+# Parsing this file should yield: the workspace environment, the directory layout, and the file-fetch seeds.
+# Copy it and change values for the real job. Commented keys are optional; uncomment them when needed.
 #
-# schema: ptc/v0    对应 uses: ptc/prepare@v0
+# schema: ptc/v0    corresponds to uses: ptc/prepare@v0
 
 apiVersion: ptc/v0
 kind: Prepare
 
 metadata:
   name: scene-a-cuda-test
-  description: "按种子搭好工作树环境与目录，再交给后续 run 步骤。"
+  description: "Build the worktree environment and directories from seeds, then hand off to later run steps."
 
-# 选择执行节点。CUDA 默认不能派到网关或没有 NVIDIA GPU 的机器。
+# Select an exec node. CUDA must not be dispatched to a gateway or a machine without an NVIDIA GPU, by default.
 target:
   services: [exec]
   require_nvidia: true
-  # 默认 true：即使某台中转/文件节点上有完整数据副本，也不能在那台机器上跑 CUDA。
+  # Default true: even if a relay/files node already has a complete data replica, CUDA must not run on that machine.
   deny_non_exec: true
 
-  # 可选。钉到某一台节点；与下面的筛选条件同时生效。
+  # Optional. Pin to one node; applied together with the filters below.
   # node:
   #   name: worker-a
   #   peer_id: 12D3KooW...
 
-  # 可选。按目录里的能力再筛一层。
+  # Optional. Filter further by capabilities in the catalog.
   # gpu:
   #   name: "NVIDIA GeForce RTX 4090"
   #   min_vram_mib: 16384
   # network:
   #   allow_cidrs: ["10.87.0.0/24"]
 
-  # 等待可调度节点的最长时间（仅准备阶段，不含后续 run）。
+  # How long to wait for a schedulable node (prepare stage only, not later run steps).
   timeout: 30m
 
-# 1) workspace 环境：后续 run 步骤看到的工作目录、shell、环境变量。
+# 1) Workspace environment: working directory, shell, and environment variables seen by later run steps.
 workspace:
-  # 相对工作树根目录。
+  # Relative to the worktree root.
   working_directory: "."
-  # Windows 执行节点用 pwsh 或 cmd；Linux 用 bash。
+  # Use pwsh or cmd on a Windows exec node; use bash on Linux.
   shell: pwsh
   entrypoint: bin/app.exe
   env:
     CUDA_VISIBLE_DEVICES: "0"
-    # 运行时还会注入 PTC_WORKTREE、PTC_IN、PTC_OUT、PTC_TMP，不必手写。
+    # The runtime also injects PTC_WORKTREE, PTC_IN, PTC_OUT, and PTC_TMP; you do not need to write them by hand.
   timeout: 2h
   resources:
     gpu_count: 1
 
-# 2) 目录结构：一次运行一棵工作树（类似 git worktree）。
-# 只读目录用来挂永久数据；out/ 与 tmp/ 可写。
+# 2) Directory layout: one worktree per run (similar to a git worktree).
+# Read-only directories hold permanent data; out/ and tmp/ are writable.
 layout:
-  # 留空表示使用节点数据目录下的 worktrees/<run_id>。
+  # Empty means worktrees/<run_id> under the node's data directory.
   root: ""
   directories:
     - path: in
@@ -78,24 +78,24 @@ layout:
     - path: tmp
       class: temporary
       writable: true
-  # 成功后是否保留工作树。失败时默认保留，便于看日志。
+  # Whether to keep the worktree after success. On failure it is kept by default so logs can be inspected.
   keep_on_success: false
   keep_on_failure: true
 
-# 3) 文件获取种子：用内容标识到网格里找副本，挂到 layout 中的 dest。
-# 本机已有则去重硬链接，不要整份再拷一份。
-# 每份永久数据在网格中至少有一个副本，但不保证当前执行节点已经有。
+# 3) File-fetch seeds: find a replica on the mesh by content identifier and mount it at dest in the layout.
+# If the host already has it, dedup with a hard link; do not copy the whole tree again.
+# Every permanent object has at least one replica on the mesh, but the current exec node is not guaranteed to have it yet.
 seeds:
   - name: third_party_sdk
     class: permanent
     dest: in/sdk
-    # 种子本体用一种即可；同时写时必须指向同一份内容。
+    # One identity for the seed body is enough; if you write more than one they must point at the same content.
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
     # cid: bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi
     # source:
     #   dataset: third-party-sdk
     #   revision: "2026-11"
-    # hardlink：优先（Windows 上对同一卷有效）；不行再 copy。
+    # hardlink is preferred (works on the same volume on Windows); fall back to copy if it cannot be used.
     mode: hardlink
     preserve_layout: true
     required: true
@@ -113,18 +113,18 @@ seeds:
     from:
       any_replica: true
 
-  # 调试程序默认是临时种子。已发布、可共享的构建可改成 permanent，并改用 digest / cid。
+  # A debugging program is a temporary seed by default. A published, shareable build can be changed to permanent and use digest / cid.
   - name: app
     class: temporary
     dest: bin/app.exe
     entrypoint: true
     required: true
-    # 提交端本地文件也可作为种子：先纳入网格（或仅本次传输），再落到 dest。
+    # A local file on the submitter can also be a seed: it is first taken into the mesh (or transferred for this run only), then landed at dest.
     local:
       src: ./build/app.exe
     # digest: sha256:2222222222222222222222222222222222222222222222222222222222222222
 
-# 运行结束后收集到任务摘要里的路径（均相对工作树，且应出现在 layout 中）。
+# Paths collected into the job summary after the run (all relative to the worktree, and they should appear in layout).
 outputs:
   - name: results
     path: out/results
@@ -135,9 +135,9 @@ outputs:
     class: temporary
     summary: false
 
-# 数据生命周期。永久数据可 pin 在文件节点；临时数据必须可回收，以免占满磁盘。
+# Data lifecycle. Permanent data may be pinned on a files node; temporary data must be reclaimable so it does not fill the disk.
 data:
   pin_permanent: true
   evict_temporary_after: 7d
-  # 单次运行临时数据（out/ + tmp/ + 临时种子）的上限，超限则 prepare 或 run 失败。
+  # Cap on temporary data for a single run (out/ + tmp/ + temporary seeds). Crossing it fails prepare or run.
   # max_temp_bytes: 20GiB
