@@ -1,8 +1,8 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"text/tabwriter"
@@ -58,24 +58,37 @@ assets and SHA256SUMS for offline meshes.`,
 				return fmt.Errorf("--mesh and --ssh cannot be used together")
 			}
 			if mesh {
-				return meshUpdate(flags.version, nodes, batch, assetsDir, dryRun, jsonOut)
+				if noRestart || cmd.Flags().Changed("path") || cmd.Flags().Changed("identity") || cmd.Flags().Changed("known-hosts") || cmd.Flags().Changed("port") {
+					return fmt.Errorf("--no-restart, --path and SSH options cannot be used with --mesh")
+				}
+				if batch <= 0 {
+					return fmt.Errorf("--batch must be positive")
+				}
+				if !cmd.Flags().Changed("version") {
+					flags.version = version.Version
+				}
+				return meshUpdate(cmd, flags.version, nodes, batch, assetsDir, dryRun, jsonOut)
+			}
+			if dryRun || jsonOut || assetsDir != "" || len(nodes) > 0 || cmd.Flags().Changed("batch") {
+				return fmt.Errorf("--dry-run, --json, --assets-dir, --nodes, and --batch require --mesh")
 			}
 			if cmd.Flags().Changed("ssh") && flags.host == "" {
 				return fmt.Errorf("--ssh requires a destination")
 			}
 			if flags.host != "" {
+				if noRestart {
+					return fmt.Errorf("--no-restart applies only to local updates")
+				}
 				return runSSHDeployment(cmd, flags, "update")
 			}
 			if cmd.Flags().Changed("identity") || cmd.Flags().Changed("known-hosts") || cmd.Flags().Changed("port") {
 				return fmt.Errorf("--identity, --known-hosts, and --port require --ssh")
 			}
-			if dryRun || jsonOut || assetsDir != "" || len(nodes) > 0 || cmd.Flags().Changed("batch") {
-				return fmt.Errorf("--dry-run, --json, --assets-dir, --nodes, and --batch require --mesh")
-			}
 			return runLocalUpdate(cmd, flags, noRestart)
 		},
 	}
 	addSSHDeploymentFlags(cmd, &flags, "local target without --ssh; remote target with --ssh (absolute path)", false)
+	cmd.Flags().Lookup("version").Usage = "release version (default: latest stable; with --mesh: this binary's version)"
 	cmd.Flags().BoolVar(&mesh, "mesh", false, "roll the version out to install-managed peers over bitswap")
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nil, "with --mesh: only these node names or peer IDs")
 	cmd.Flags().IntVar(&batch, "batch", 1, "with --mesh: nodes per stage")
@@ -94,10 +107,10 @@ func runLocalUpdate(cmd *cobra.Command, flags sshDeploymentFlags, noRestart bool
 	fmt.Fprintf(cmd.OutOrStdout(), "Updated local ptc %s -> %s (%s) at %s\n",
 		result.OldVersion, result.NewVersion, result.Platform, result.Path)
 	if err := deploy.RecordInstall(updateDataDir(), result.Path, result.NewVersion); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: install.json not updated: %v\n", err)
+		return fmt.Errorf("binary updated, but install.json was not recorded: %w", err)
 	}
 	if !noRestart {
-		restartLocal(updateDataDir(), result.NewVersion)
+		return restartLocal(updateDataDir(), result.NewVersion)
 	}
 	return nil
 }
@@ -112,11 +125,13 @@ func updateDataDir() string {
 	return config.DefaultDataDir()
 }
 
-func restartLocal(dd, want string) {
+func restartLocal(dd, want string) error {
 	cli, err := control.ClientFromDataDir(dd, apiAddr)
 	if err == nil {
 		if st, err := cli.Status(); err == nil {
-			if err := cli.Restart(); err == nil {
+			if err := cli.Restart(); err != nil {
+				return fmt.Errorf("binary updated, but daemon restart was refused: %w", err)
+			} else {
 				for i := 0; i < 60; i++ {
 					time.Sleep(500 * time.Millisecond)
 					c2, err := control.ClientFromDataDir(dd, apiAddr)
@@ -125,35 +140,34 @@ func restartLocal(dd, want string) {
 					}
 					if s2, err := c2.Status(); err == nil && s2.Version == want {
 						fmt.Printf("daemon %s restarted at %s\n", st.Name, want)
-						return
+						return nil
 					}
 				}
-				fmt.Fprintf(os.Stderr, "warning: daemon %s did not come back at %s within 30s; if it runs from another binary, update that one\n", st.Name, want)
-				return
+				return fmt.Errorf("daemon %s did not come back at %s within 30s; if it runs from another binary, update that one", st.Name, want)
 			}
 		}
 	}
 	in, ok := deploy.Load(dd)
 	if !ok {
 		fmt.Println("no running daemon found; start it with: ptc daemon")
-		return
+		return nil
 	}
 	cmds := deploy.RestartCommand(in)
 	if len(cmds) == 0 {
 		fmt.Println("daemon not running; start it with: ptc daemon")
-		return
+		return nil
 	}
 	for _, c := range cmds {
 		out, err := exec.Command(c[0], c[1:]...).CombinedOutput()
 		if err != nil && !(len(c) > 1 && c[1] == "/End") {
-			fmt.Fprintf(os.Stderr, "warning: %s: %v %s\n", strings.Join(c, " "), err, strings.TrimSpace(string(out)))
-			return
+			return fmt.Errorf("restart %s: %w: %s", strings.Join(c, " "), err, strings.TrimSpace(string(out)))
 		}
 	}
 	fmt.Printf("restarted service %s (%s)\n", in.ServiceName, in.Service)
+	return nil
 }
 
-func meshUpdate(ver string, nodes []string, batch int, assetsDir string, dryRun, jsonOut bool) error {
+func meshUpdate(cmd *cobra.Command, ver string, nodes []string, batch int, assetsDir string, dryRun, jsonOut bool) error {
 	cli, err := controlClient()
 	if err != nil {
 		return fmt.Errorf("--mesh needs a running ptc daemon: %w", err)
@@ -165,20 +179,30 @@ func meshUpdate(ver string, nodes []string, batch int, assetsDir string, dryRun,
 	if err != nil {
 		return err
 	}
+	var resultErr error
+	for _, n := range rep.Nodes {
+		if n.Status == "failed" {
+			resultErr = fmt.Errorf("mesh update incomplete")
+			break
+		}
+	}
+	out := cmd.OutOrStdout()
 	if jsonOut {
-		return printJSON(rep)
+		if err := json.NewEncoder(out).Encode(rep); err != nil {
+			return err
+		}
+		return resultErr
 	}
-	fmt.Printf("mesh update to %s", rep.Version)
+	fmt.Fprintf(out, "mesh update to %s", rep.Version)
 	if dryRun {
-		fmt.Print(" (dry run)")
+		fmt.Fprint(out, " (dry run)")
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 	for k, a := range rep.Assets {
-		fmt.Printf("  asset %s: %s %s (%d bytes, served over bitswap)\n", k, a.Name, shortDigest(a.Digest), a.Size)
+		fmt.Fprintf(out, "  asset %s: %s %s (%d bytes, served over bitswap)\n", k, a.Name, shortDigest(a.Digest), a.Size)
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "NODE\tPLATFORM\tFROM\tSTAGE\tSTATUS\tTOOK\tMIB/S\tDETAIL")
-	failed := false
 	for _, n := range rep.Nodes {
 		stage, rate := "-", "-"
 		if n.Stage > 0 {
@@ -191,16 +215,12 @@ func meshUpdate(ver string, nodes []string, batch int, assetsDir string, dryRun,
 		if len(n.Providers) > 0 {
 			detail = strings.TrimSpace(detail + " from " + strings.Join(n.Providers, ", "))
 		}
-		if n.Status == "failed" {
-			failed = true
-		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", n.Name, n.Platform, dash(n.From), stage, n.Status, dash(n.Took), rate, detail)
 	}
-	_ = w.Flush()
-	if failed {
-		return fmt.Errorf("mesh update incomplete")
+	if err := w.Flush(); err != nil {
+		return err
 	}
-	return nil
+	return resultErr
 }
 
 func shortDigest(d string) string {

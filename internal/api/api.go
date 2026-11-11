@@ -33,7 +33,7 @@ type Node interface {
 	// MeshUpdate rolls a ptc version out to eligible peers.
 	MeshUpdate(ctx context.Context, req control.MeshUpdateRequest) (control.MeshUpdateReport, error)
 	// RequestRestart re-execs the daemon binary (after ptc update).
-	RequestRestart()
+	RequestRestart() error
 	RemoteUpdatePolicy() bool
 	SetRemoteUpdatePolicy(on bool) error
 	Dispatch(ctx context.Context, target catalog.Entry, bundle []byte, follow bool, submitter taskboard.Party, ev func(dispatch.Event)) (dispatch.Event, error)
@@ -86,8 +86,11 @@ func (s *Server) meshUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) restart(w http.ResponseWriter, _ *http.Request) {
+	if err := s.Node.RequestRestart(); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarting"})
-	s.Node.RequestRestart()
 }
 
 func (s *Server) ver(w http.ResponseWriter, _ *http.Request) {

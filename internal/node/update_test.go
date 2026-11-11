@@ -14,6 +14,7 @@ import (
 
 	"github.com/tigeregit/peer-task-control/internal/catalog"
 	"github.com/tigeregit/peer-task-control/internal/deploy"
+	"github.com/tigeregit/peer-task-control/internal/dispatch"
 	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
@@ -34,6 +35,7 @@ func makeManaged(t *testing.T, n *Node) string {
 	}
 	n.upd.mu.Lock()
 	n.upd.managed = true
+	n.upd.exe = exe
 	n.upd.mu.Unlock()
 	n.bumpLocal()
 	n.Catalog.Put(n.LocalEntry())
@@ -49,21 +51,25 @@ func TestMeshUpdate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses a shell-script stand-in binary")
 	}
+	oldWait := updateRejoinWait
 	updateRejoinWait = time.Second
+	defer func() { updateRejoinWait = oldWait }()
 	cidrs := []string{"127.0.0.0/8"}
 	ini := startTestNode(t, "initiator", "127.0.0.1", false, cidrs)
 	tgt := startTestNode(t, "target", "127.0.0.2", false, cidrs)
 	off := startTestNode(t, "refuser", "127.0.0.3", false, cidrs)
 	plain := startTestNode(t, "unmanaged", "127.0.0.4", false, cidrs)
+	later := startTestNode(t, "z-later", "127.0.0.5", false, cidrs)
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	for _, n := range []*Node{tgt, off, plain} {
+	for _, n := range []*Node{tgt, off, plain, later} {
 		if err := ini.Probe(ctx, listenHostPort(n)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	exe := makeManaged(t, tgt)
 	makeManaged(t, off)
+	laterExe := makeManaged(t, later)
 	if err := off.SetRemoteUpdatePolicy(false); err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +77,13 @@ func TestMeshUpdate(t *testing.T) {
 	for time.Now().Before(deadline) {
 		a, _ := ini.Catalog.Get(tgt.Host.ID().String())
 		b, _ := ini.Catalog.Get(off.Host.ID().String())
-		if a.Managed && b.Managed && !b.AcceptUpdate {
+		c, _ := ini.Catalog.Get(later.Host.ID().String())
+		if a.Managed && b.Managed && !b.AcceptUpdate && c.Managed {
 			break
 		}
 		_ = ini.exchange(ctx, tgt.Host.ID())
 		_ = ini.exchange(ctx, off.Host.ID())
+		_ = ini.exchange(ctx, later.Host.ID())
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -106,7 +114,7 @@ func TestMeshUpdate(t *testing.T) {
 		t.Fatalf("refuser answered %+v, %v", r, err)
 	}
 
-	rep, err := ini.MeshUpdate(ctx, MeshUpdateRequest{Version: "0.3.1", AssetsDir: dir, Nodes: []string{"target"}})
+	rep, err := ini.MeshUpdate(ctx, MeshUpdateRequest{Version: "0.3.1", AssetsDir: dir, Nodes: []string{"target", "z-later"}, Batch: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,9 +123,15 @@ func TestMeshUpdate(t *testing.T) {
 		if r.Name == "target" {
 			got = r
 		}
+		if r.Name == "z-later" && (r.Status != "skipped" || !strings.Contains(r.Detail, "earlier stage failed")) {
+			t.Fatalf("later stage was not stopped: %+v", r)
+		}
 	}
-	if got.Status != "updated" {
+	if got.Status != "failed" || !strings.Contains(got.Detail, "not yet seen back") {
 		t.Fatalf("target: %+v", got)
+	}
+	if b, _ := os.ReadFile(laterExe); string(b) != string(fakePtc("0.3.0")) {
+		t.Fatal("later stage replaced a binary after rejoin failure")
 	}
 	b, _ := os.ReadFile(exe)
 	if string(b) != string(bin) {
@@ -146,6 +160,58 @@ func TestMeshUpdate(t *testing.T) {
 		})
 	}
 	t.Logf("target updated in %s from %v at %.1f MiB/s", got.Took, got.Providers, got.MiBs)
+}
+
+func TestMeshUpdateSelectsOnlyRequestedNodes(t *testing.T) {
+	n := startTestNode(t, "initiator", "127.0.0.1", false, []string{"127.0.0.0/8"})
+	for _, name := range []string{"a-selected", "z-unselected"} {
+		n.Catalog.Put(catalog.Entry{PeerID: name, Name: name, Version: version.Version, Managed: true, AcceptUpdate: true})
+	}
+	rep, err := n.MeshUpdate(context.Background(), MeshUpdateRequest{Version: "0.3.1", Nodes: []string{"a-selected"}, DryRun: true})
+	if err != nil || len(rep.Nodes) != 1 || rep.Nodes[0].Name != "a-selected" {
+		t.Fatalf("selection expanded beyond requested node: %+v, %v", rep, err)
+	}
+}
+
+func TestUpdateAndRestartPreserveQueuedJobs(t *testing.T) {
+	n := startTestNode(t, "busy-worker", "127.0.0.1", false, []string{"127.0.0.0/8"})
+	makeManaged(t, n)
+	n.mu.Lock()
+	err := n.queue.Enqueue(&dispatch.Job{JobID: "busy-job", RunID: "busy-run"}, []byte("bundle"))
+	n.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := n.RequestRestart(); err == nil {
+		t.Fatal("restart accepted with a queued job")
+	}
+	res := n.applyRemoteUpdate(n.Host.ID(), updateMessage{Type: "update", Version: "0.3.1",
+		Assets: map[string]UpdateAsset{platformKey(runtime.GOOS, runtime.GOARCH): {Digest: "sha256:" + strings.Repeat("a", 64)}}})
+	if res.OK || !strings.Contains(res.Error, "drain the queue") || n.updating() {
+		t.Fatalf("busy update: %+v", res)
+	}
+	n.mu.Lock()
+	_, err = n.queue.Cancel("busy-job")
+	n.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	n.upd.mu.Lock()
+	n.upd.busy = true
+	n.upd.mu.Unlock()
+	if err := n.RequestRestart(); err == nil {
+		t.Fatal("restart interrupted an in-flight update")
+	}
+	n.upd.mu.Lock()
+	n.upd.busy = false
+	n.upd.mu.Unlock()
+	if err := n.RequestRestart(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := n.acceptBundle(slowBundle(t), dispatch.Request{}, n.Host.ID().String(), nil); err == nil ||
+		!strings.Contains(err.Error(), "restarting") {
+		t.Fatalf("new task admitted during restart: %v", err)
+	}
 }
 
 func mustEntry(t *testing.T, n *Node, other *Node) catalog.Entry {

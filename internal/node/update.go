@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -82,14 +83,37 @@ func (n *Node) managed() bool {
 func (n *Node) RestartRequested() <-chan struct{} { return n.upd.restart }
 
 // RequestRestart asks the daemon command to restart the process.
-func (n *Node) RequestRestart() {
-	if n.upd.restart == nil {
-		return
+func (n *Node) RequestRestart() error {
+	return n.requestRestart(false)
+}
+
+func (n *Node) requestRestart(afterUpdate bool) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.queue.Pending())+len(n.queue.Running()) != 0 {
+		return fmt.Errorf("cannot restart with queued or running jobs; drain the queue first")
 	}
+	if n.upd.restart == nil {
+		return fmt.Errorf("restart is not initialized")
+	}
+	n.upd.mu.Lock()
+	if n.upd.busy && !afterUpdate {
+		n.upd.mu.Unlock()
+		return fmt.Errorf("an update or restart is already in progress")
+	}
+	n.upd.busy = true
+	n.upd.mu.Unlock()
 	select {
 	case n.upd.restart <- struct{}{}:
 	default:
 	}
+	return nil
+}
+
+func (n *Node) updating() bool {
+	n.upd.mu.Lock()
+	defer n.upd.mu.Unlock()
+	return n.upd.busy
 }
 
 // RemoteUpdatePolicy is update.accept_remote.
@@ -97,9 +121,7 @@ func (n *Node) RemoteUpdatePolicy() bool { return n.Cfg.AcceptsRemoteUpdate() }
 
 // SetRemoteUpdatePolicy changes and persists update.accept_remote.
 func (n *Node) SetRemoteUpdatePolicy(on bool) error {
-	v := on
-	n.Cfg.Update.AcceptRemote = &v
-	if err := n.Cfg.Save(); err != nil {
+	if err := n.Cfg.SetRemoteUpdate(on); err != nil {
 		return err
 	}
 	n.bumpLocal()
@@ -124,7 +146,9 @@ func (n *Node) handleUpdate(s network.Stream) {
 	if res.OK && res.Note == "" {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			n.RequestRestart()
+			if err := n.requestRestart(true); err != nil {
+				n.Log.Error("updated binary could not restart", "err", err)
+			}
 		}()
 	}
 }
@@ -136,6 +160,9 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 		return updateMessage{Error: msg}
 	}
 	name := ""
+	if req.Type != "update" {
+		return fail("invalid update message type %q", req.Type)
+	}
 	if e, ok := n.Catalog.Get(from.String()); ok {
 		name = e.Name
 	}
@@ -169,7 +196,7 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 	}
 	inst, ok := deploy.Load(n.Cfg.DataDir)
 	if !ok {
-		return fail("not install-managed (no %s); install with ptc install --ssh or ptc update", deploy.ManifestPath(n.Cfg.DataDir))
+		return fail("not install-managed (no %s); record it with a local ptc update", deploy.ManifestPath(n.Cfg.DataDir))
 	}
 	exe := n.upd.exe
 	if inst.Binary != "" {
@@ -178,18 +205,40 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 	if exe == "" {
 		return fail("cannot resolve own executable")
 	}
+	running, err := os.Stat(n.upd.exe)
+	if err != nil {
+		return fail("inspect running executable: %v", err)
+	}
+	target, err := os.Stat(exe)
+	if err != nil || !os.SameFile(running, target) {
+		return fail("install.json does not identify this daemon's executable")
+	}
 	asset, ok := req.Assets[platformKey(runtime.GOOS, runtime.GOARCH)]
 	if !ok {
 		return fail("no binary offered for %s", platformKey(runtime.GOOS, runtime.GOARCH))
 	}
+	n.mu.Lock()
+	if len(n.queue.Pending())+len(n.queue.Running()) != 0 {
+		n.mu.Unlock()
+		return fail("node has queued or running jobs; drain the queue before updating")
+	}
 	n.upd.mu.Lock()
 	if n.upd.busy {
 		n.upd.mu.Unlock()
+		n.mu.Unlock()
 		return fail("an update is already in progress")
 	}
 	n.upd.busy = true
 	n.upd.mu.Unlock()
-	defer func() { n.upd.mu.Lock(); n.upd.busy = false; n.upd.mu.Unlock() }()
+	n.mu.Unlock()
+	installed := false
+	defer func() {
+		if !installed {
+			n.upd.mu.Lock()
+			n.upd.busy = false
+			n.upd.mu.Unlock()
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(n.ctx, updateTimeout-time.Minute)
 	defer cancel()
@@ -198,6 +247,15 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 	pr, err := n.PullSeed(ctx, asset.Digest, &logb)
 	if err != nil {
 		return fail("pull %s %s: %v", asset.Name, asset.Digest, err)
+	}
+	if !had {
+		defer func() {
+			_ = os.Remove(resource.CIDPath(pr.Path))
+			_ = os.Remove(pr.Path)
+		}()
+	}
+	if pr.Kind != "blob" {
+		return fail("update binary must be a blob")
 	}
 	bin, err := os.ReadFile(pr.Path)
 	if err != nil {
@@ -210,17 +268,15 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 		return fail("replace %s: %v", exe, err)
 	}
 	if got, err := deploy.BinaryVersion(exe); err != nil || got != req.Version {
-		_ = deploy.Rollback(exe)
-		return fail("new binary reports version %q (%v), want %s; rolled back", got, err, req.Version)
+		rollbackErr := deploy.Rollback(exe)
+		return fail("new binary reports version %q (%v), want %s; rollback: %v", got, err, req.Version, rollbackErr)
+	}
+	inst.Previous, inst.Version, inst.UpdatedAt = version.Version, req.Version, time.Now().UTC()
+	if err := deploy.Save(n.Cfg.DataDir, inst); err != nil {
+		return fail("persist install metadata: %v", errors.Join(err, deploy.Rollback(exe)))
 	}
 	if err := deploy.WriteSkill(exe); err != nil {
 		n.Log.Warn("refresh skill copy failed", "err", err)
-	}
-	inst.Previous, inst.Version, inst.UpdatedAt = version.Version, req.Version, time.Now().UTC()
-	_ = deploy.Save(n.Cfg.DataDir, inst)
-	if !had {
-		_ = os.Remove(resource.BlobCIDPath(pr.Path))
-		_ = os.Remove(pr.Path)
 	}
 	out := updateMessage{OK: true, Bytes: pr.Fetch.Bytes, MiBs: pr.Fetch.MBPerSec}
 	for _, p := range pr.Fetch.Providers {
@@ -230,6 +286,7 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 		out.Providers = []string{"local CAS"}
 	}
 	n.Log.Info("remote update installed; restarting", "from", firstNonEmpty(name, from.String()), "old", version.Version, "new", req.Version, "bytes", pr.Fetch.Bytes, "mib_s", fmt.Sprintf("%.1f", pr.Fetch.MBPerSec))
+	installed = true
 	return out
 }
 
@@ -245,6 +302,9 @@ type (
 // staged in this node's CAS so targets pull them with bitswap (from this
 // node and any peer that already has them), not from GitHub.
 func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdateReport, error) {
+	if req.Batch < 0 {
+		return MeshUpdateReport{}, fmt.Errorf("batch must be positive")
+	}
 	target := strings.TrimPrefix(req.Version, "v")
 	if target == "" {
 		target = version.Version
@@ -272,12 +332,13 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 		}
 	}
 	self := n.Host.ID().String()
+	filtered := len(want) > 0
 	var todo []catalog.Entry
 	for _, e := range n.Peers() {
 		if e.PeerID == self {
 			continue
 		}
-		if len(want) > 0 && !want[e.Name] && !want[e.PeerID] {
+		if filtered && !want[e.Name] && !want[e.PeerID] {
 			continue
 		}
 		delete(want, e.Name)
@@ -293,7 +354,7 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 		case version.Compare(target, e.Version) < 0:
 			nr.Status, nr.Detail = "skipped", "node is newer than "+target
 		case !e.Managed:
-			nr.Status, nr.Detail = "skipped", "not install-managed (no install.json); use ptc install --ssh or ptc update"
+			nr.Status, nr.Detail = "skipped", "not install-managed (no install.json); record it with a local ptc update"
 		case !e.AcceptUpdate:
 			nr.Status, nr.Detail = "skipped", "node refuses remote updates (update.accept_remote: false)"
 		default:
@@ -325,7 +386,7 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 	var staged []string
 	defer func() {
 		for _, p := range staged {
-			_ = os.Remove(resource.BlobCIDPath(p))
+			_ = os.Remove(resource.CIDPath(p))
 			_ = os.Remove(p)
 		}
 	}()
@@ -429,6 +490,7 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 			if v, ok := n.waitVersion(ctx, e.PeerID, target, updateRejoinWait); ok {
 				nr.Detail = "rejoined at " + v
 			} else {
+				nr.Status = "failed"
 				nr.Detail = "installed; not yet seen back at " + target
 				failed = true
 			}

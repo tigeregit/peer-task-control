@@ -310,12 +310,7 @@ func (n *Node) diskUsage() *disk.Usage {
 
 func (n *Node) PersistPolicy() error {
 	execOn, filesOn, relayOn := n.Store.Services()
-	n.Cfg.Services.Exec = execOn
-	n.Cfg.Services.Files = filesOn
-	n.Cfg.Services.Relay = relayOn
-	n.Cfg.Policy.Allow = n.Store.AllowList()
-	n.Cfg.Policy.Deny = n.Store.DenyList()
-	if err := n.Cfg.Save(); err != nil {
+	if err := n.Cfg.SavePolicy(config.Services{Exec: execOn, Files: filesOn, Relay: relayOn}, n.Store.AllowList(), n.Store.DenyList()); err != nil {
 		return err
 	}
 	n.bumpLocal()

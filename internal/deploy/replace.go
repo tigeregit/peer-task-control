@@ -1,11 +1,11 @@
 package deploy
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -17,6 +17,13 @@ func PrevPath(exe string) string { return exe + ".prev" }
 // old file is moved aside first; the new one is written next to it and
 // renamed into place, so exe is never half-written.
 func Replace(exe string, newBin []byte) error {
+	info, err := os.Lstat(exe)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("update target must be a regular, non-symlink file")
+	}
 	dir := filepath.Dir(exe)
 	tmp, err := os.CreateTemp(dir, filepath.Base(exe)+".new-*")
 	if err != nil {
@@ -33,8 +40,11 @@ func Replace(exe string, newBin []byte) error {
 		os.Remove(tmpName)
 		return err
 	}
-	tmp.Close()
-	if err := os.Chmod(tmpName, 0o755); err != nil {
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, info.Mode().Perm()); err != nil {
 		os.Remove(tmpName)
 		return err
 	}
@@ -83,16 +93,14 @@ func Rollback(exe string) error {
 
 // BinaryVersion runs `<exe> version`.
 func BinaryVersion(exe string) (string, error) {
-	out, err := exec.Command(exe, "version").Output()
-	if err != nil {
-		return "", fmt.Errorf("%s version: %w", exe, err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	return probeBinaryVersion(context.Background(), exe)
 }
 
 // WriteSkill writes the version-bound skill of exe to SKILL.md next to it.
 func WriteSkill(exe string) error {
-	out, err := exec.Command(exe, "skill", "print").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, exe, "skill", "print").Output()
 	if err != nil {
 		return fmt.Errorf("%s skill print: %w", exe, err)
 	}

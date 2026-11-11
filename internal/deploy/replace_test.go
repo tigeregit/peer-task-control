@@ -47,4 +47,11 @@ func TestReplaceAndRollback(t *testing.T) {
 	if got, ok := Load(dir); !ok || got.Binary != exe {
 		t.Fatalf("load %+v %v", got, ok)
 	}
+	next := filepath.Join(dir, "another-ptc")
+	if err := RecordInstall(dir, next, "0.3.1"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Load(dir); got.Binary != next || got.Previous != "0.3.0" || got.Service != ServiceNohup {
+		t.Fatalf("record install retained an obsolete binary or lost metadata: %+v", got)
+	}
 }

@@ -60,7 +60,36 @@ type Update struct {
 
 // AcceptsRemoteUpdate reports the update.accept_remote policy (default on).
 func (c *Config) AcceptsRemoteUpdate() bool {
-	return c == nil || c.Update.AcceptRemote == nil || *c.Update.AcceptRemote
+	if c == nil {
+		return true
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Update.AcceptRemote == nil || *c.Update.AcceptRemote
+}
+
+func (c *Config) SetRemoteUpdate(on bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	old := c.Update.AcceptRemote
+	c.Update.AcceptRemote = &on
+	if err := c.saveLocked(); err != nil {
+		c.Update.AcceptRemote = old
+		return err
+	}
+	return nil
+}
+
+func (c *Config) SavePolicy(services Services, allow, deny []string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	oldServices, oldPolicy := c.Services, c.Policy
+	c.Services, c.Policy.Allow, c.Policy.Deny = services, allow, deny
+	if err := c.saveLocked(); err != nil {
+		c.Services, c.Policy = oldServices, oldPolicy
+		return err
+	}
+	return nil
 }
 
 type Config struct {
@@ -379,15 +408,19 @@ func ipNet(ip net.IP) *net.IPNet {
 }
 
 func (c *Config) Save() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.saveLocked()
+}
+
+func (c *Config) saveLocked() error {
 	if c.Path == "" {
 		return fmt.Errorf("config has no path")
 	}
 	if err := os.MkdirAll(filepath.Dir(c.Path), 0o700); err != nil {
 		return err
 	}
-	c.mu.RLock()
 	b, err := yaml.Marshal(c)
-	c.mu.RUnlock()
 	if err != nil {
 		return err
 	}

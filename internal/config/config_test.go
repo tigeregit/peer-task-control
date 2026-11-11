@@ -2,9 +2,55 @@ package config
 
 import (
 	"net"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
+
+func TestRemoteUpdatePolicySavesConcurrently(t *testing.T) {
+	c := Defaults()
+	c.Path = filepath.Join(t.TempDir(), "config.yaml")
+	var wg sync.WaitGroup
+	for task := 0; task < 3; task++ {
+		wg.Add(1)
+		go func(task int) {
+			defer wg.Done()
+			for i := 0; i < 12; i++ {
+				var err error
+				switch task {
+				case 0:
+					err = c.SetRemoteUpdate(i%2 == 0)
+				case 1:
+					err = c.SavePolicy(Services{Files: true}, []string{"worker"}, nil)
+				case 2:
+					_ = c.AcceptsRemoteUpdate()
+					err = c.Save()
+				}
+				if err != nil {
+					t.Errorf("save policy: %v", err)
+					return
+				}
+			}
+		}(task)
+	}
+	wg.Wait()
+	if c.AcceptsRemoteUpdate() {
+		t.Fatal("last policy write was lost")
+	}
+}
+
+func TestRemoteUpdatePolicySaveFailureRollsBack(t *testing.T) {
+	c := Defaults()
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, []byte("block"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c.Path = filepath.Join(parent, "config.yaml")
+	if err := c.SetRemoteUpdate(false); err == nil || !c.AcceptsRemoteUpdate() {
+		t.Fatalf("failed persistence changed the live policy: %v", err)
+	}
+}
 
 func TestNormalizeRequiresCIDR(t *testing.T) {
 	c := Defaults()

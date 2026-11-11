@@ -212,6 +212,9 @@ func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer stri
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if n.updating() {
+		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("node is updating or restarting; retry after it rejoins")
+	}
 	pending := len(n.queue.Pending()) + len(n.queue.Running())
 	if pending >= maxQueueJobs {
 		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("exec queue on %s is full (%d jobs); try again later", n.Cfg.Name, pending)
@@ -264,6 +267,10 @@ func (n *Node) startDueJobs() {
 	}
 	for {
 		n.mu.Lock()
+		if n.updating() {
+			n.mu.Unlock()
+			return
+		}
 		if n.ctx.Err() != nil {
 			n.mu.Unlock()
 			return

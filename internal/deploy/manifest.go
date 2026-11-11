@@ -72,9 +72,7 @@ func RecordInstall(dataDir, exe, now string) error {
 	if !ok {
 		in = Install{Binary: exe, DataDir: dataDir, Service: ServiceNone, InstalledAt: time.Now().UTC()}
 	}
-	if in.Binary == "" {
-		in.Binary = exe
-	}
+	in.Binary = exe
 	in.Previous, in.Version, in.UpdatedAt = in.Version, now, time.Now().UTC()
 	if in.DataDir == "" {
 		in.DataDir = dataDir
