@@ -400,7 +400,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 
 `prepare.yaml` 的 `target.require_nvidia`（默认 true）和 `target.deny_non_exec`（默认 true）在提交者（目录预检）和目标上都会执行。无 NVIDIA、exec 关闭、或网关必须拒绝，并给出明确错误。exec 节点默认并发 1，后来的作业进入持久 FIFO 队列，而不是直接报忙。
 
-默认 follow：直到作业结束都打印状态和日志。`--detach` 在入队后返回。提交者断开 follow **不会**取消作业；要用 `ptc cancel <run-id>`。
+默认 follow：直到作业结束都打印状态和日志。`--detach` 在入队后返回。提交者断开 follow **不会**取消作业；要用 `ptc cancel <run-id>`。远程提交使用 `--json --fetch-result` 时，stdout 只输出一个 JSON 对象，下载提示写到 stderr；下载失败会填入 JSON 的 `error` 并返回非零退出状态。
 
 ```text
 ptc submit --workflow testdata/submit/workflow.yaml --dry-run

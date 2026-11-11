@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -177,9 +179,7 @@ func submitRemote(cmd *cobra.Command, loaded workflow.Loaded, cfg *config.Config
 	}
 	follow := !detach
 	ctx := context.Background()
-	var last digestEvent
 	ev, err := cli.Exec(ctx, e.Name, bundle.Data, follow, func(ev dispatch.Event) {
-		last.Event = ev
 		if jsonOut {
 			return
 		}
@@ -203,26 +203,21 @@ func submitRemote(cmd *cobra.Command, loaded workflow.Loaded, cfg *config.Config
 			fmt.Fprintf(cmd.ErrOrStderr(), "error: %s\n", ev.Error)
 		}
 	})
-	if ev.RunID != "" {
-		last.Event = ev
+	if err == nil && follow && fetchDir != "" && ev.Digest != "" {
+		out := cmd.OutOrStdout()
+		if jsonOut {
+			out = cmd.ErrOrStderr()
+		}
+		err = fetchResult(cli, ev.Digest, fetchDir, out)
 	}
 	if jsonOut {
-		_ = printJSON(map[string]any{"target": e.Name, "peer_id": e.PeerID, "event": ev, "error": errString(err)})
-		if err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
+		encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+			"target": e.Name, "peer_id": e.PeerID, "event": ev, "error": errString(err),
+		})
+		return errors.Join(err, encodeErr)
 	}
-	if follow && fetchDir != "" && ev.Digest != "" {
-		if err := fetchResult(cli, ev.Digest, fetchDir, cmd.OutOrStdout()); err != nil {
-			return err
-		}
-	}
-	return nil
+	return err
 }
-
-type digestEvent struct{ Event dispatch.Event }
 
 func errString(err error) string {
 	if err == nil {
