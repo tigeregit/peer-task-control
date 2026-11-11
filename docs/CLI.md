@@ -481,6 +481,8 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 
 不加 `--target` 时在**本机**执行。加上 `--target <节点名|peer id>`（或 `auto`）时，本机 daemon 经 libp2p 协议 `/ptc/exec/1.0.0` 把作业下发到目标 exec 节点，目标走同一套 Prepare → steps → Package result，并把运行记录写入共享的 runs 协议，结果包按摘要发布，提交者可用 `ptc resources get` 取回。WebUI 不下发作业。
 
+不加 `--target` 的本机执行发生在 CLI 进程里，不进入 daemon 队列，因此不能 `ptc cancel`，也不受 `exec.concurrency` 限制。需要排队 / 取消语义时，用 `--target <本机节点名>` 提交给自己：daemon 不经网络，直接把作业放入本机 exec 队列（仍要求本机开启 exec，纯做种任务则要求 files；白名单 / 黑名单只约束其他节点）。
+
 内容寻址的种子（已在网格上发布）不打进 bundle；目标从本地 CAS/packages 或最短跳数的持有者拉取，并校验摘要（目录单元用 DirDigest）。只在提交者本地路径上的种子会先在本机发布，再让目标来拉。小的本地输入默认打进 bundle（`--inline-max`，默认 8MiB）；更大的走发布+拉取。
 
 `prepare.yaml` 的 `target.require_nvidia`（默认 true）和 `target.deny_non_exec`（默认 true）在提交者（目录预检）和目标上都会执行。无 NVIDIA、exec 关闭、或网关必须拒绝，并给出明确错误。exec 节点默认并发 1，后来的作业进入持久 FIFO 队列，而不是直接报忙。

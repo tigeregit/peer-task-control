@@ -21,6 +21,7 @@ import (
 
 	"github.com/tigeregit/peer-task-control/internal/catalog"
 	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/policy"
 	"github.com/tigeregit/peer-task-control/internal/run"
 	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
@@ -180,7 +181,7 @@ func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer stri
 	if u.Loaded.SeedOnly {
 		service = "files"
 	}
-	if d := n.Store.Check(service, remotePeer, req.Submitter.Node, ip); !d.Allow {
+	if d := n.acceptDecision(service, remotePeer, req.Submitter.Node, ip); !d.Allow {
 		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("policy refused %s: %s", service, d.Reason)
 	}
 	if err := dispatch.CheckJobPlacement(u.Loaded, n.LocalEntry()); err != nil {
@@ -643,6 +644,9 @@ func (n *Node) Dispatch(ctx context.Context, target catalog.Entry, bundle []byte
 	if ctx == nil {
 		ctx = n.ctx
 	}
+	if pid == n.Host.ID() {
+		return n.dispatchSelf(ctx, bundle, follow, submitter, ev)
+	}
 	s, err := n.openStream(ctx, pid, ProtocolExec)
 	if err != nil {
 		return dispatch.Event{}, fmt.Errorf("connect to %s: %w", target.Name, err)
@@ -704,16 +708,74 @@ func (n *Node) Dispatch(ctx context.Context, target catalog.Entry, bundle []byte
 			ev(e)
 		}
 		if e.Type == "done" || e.Type == "error" {
-			if e.Type == "error" || (e.Status != "" && e.Status != dispatch.StatusSucceeded) {
-				msg := e.Error
-				if msg == "" {
-					msg = e.Status
-				}
-				return e, fmt.Errorf("%s", msg)
-			}
-			return e, nil
+			return e, terminalError(e)
 		}
 	}
+}
+
+func terminalError(e dispatch.Event) error {
+	if e.Type == "error" || (e.Status != "" && e.Status != dispatch.StatusSucceeded) {
+		msg := e.Error
+		if msg == "" {
+			msg = e.Status
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
+}
+
+// dispatchSelf queues a bundle on this node's own exec queue. libp2p cannot
+// open a stream to itself, but `--target <this node>` should still get the
+// daemon queue, cancel, and concurrency semantics that peers get.
+func (n *Node) dispatchSelf(ctx context.Context, bundle []byte, follow bool, submitter taskboard.Party, ev func(dispatch.Event)) (dispatch.Event, error) {
+	if int64(len(bundle)) > dispatch.MaxBundleBytes {
+		return dispatch.Event{}, fmt.Errorf("bundle size %d is over the %d byte limit", len(bundle), dispatch.MaxBundleBytes)
+	}
+	req := dispatch.Request{Type: "submit", Follow: follow, Size: int64(len(bundle)), Submitter: submitter}
+	job, first, err := n.acceptBundle(bundle, req, n.Host.ID().String(), nil)
+	if err != nil {
+		return dispatch.Event{Type: "error", Error: err.Error()}, err
+	}
+	var ch chan dispatch.Event
+	if follow {
+		ch = n.watch(job.JobID)
+		defer n.unwatch(job.JobID, ch)
+	}
+	n.kickExec()
+	if ev != nil {
+		ev(first)
+	}
+	if !follow {
+		return first, nil
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return first, ctx.Err()
+		case <-n.ctx.Done():
+			return first, n.ctx.Err()
+		case e := <-ch:
+			if ev != nil {
+				ev(e)
+			}
+			if e.Type == "done" || e.Type == "error" {
+				return e, terminalError(e)
+			}
+		}
+	}
+}
+
+// acceptDecision applies the exec/files policy to a submitter. Allow/deny
+// lists govern other peers; this node's own operator only needs the service on.
+func (n *Node) acceptDecision(service, remotePeer, name string, ip net.IP) policy.Decision {
+	if remotePeer != n.Host.ID().String() {
+		return n.Store.Check(service, remotePeer, name, ip)
+	}
+	execOn, filesOn, _ := n.Store.Services()
+	if (service == "exec" && execOn) || (service == "files" && filesOn) {
+		return policy.Decision{Allow: true}
+	}
+	return policy.Decision{Allow: false, Reason: fmt.Sprintf("service %s is disabled on this host", service)}
 }
 
 func (n *Node) watch(jobID string) chan dispatch.Event {

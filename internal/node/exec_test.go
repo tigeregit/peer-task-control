@@ -105,6 +105,42 @@ func TestSeedOnlyDispatchToFilesNode(t *testing.T) {
 	}
 	t.Fatal("missing seed-only run record")
 }
+func TestDispatchToSelfUsesDaemonQueue(t *testing.T) {
+	a := startTestNode(t, "solo", "127.0.0.1", false, []string{"127.0.0.1/32"})
+	if err := a.Store.Add("allow", "some-other-peer"); err != nil {
+		t.Fatal(err)
+	}
+	name := "workflow.yaml"
+	if runtime.GOOS == "windows" {
+		name = "workflow.windows.yaml"
+	}
+	loaded, err := workflow.LoadJob("../../testdata/submit/"+name, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := dispatch.Build(loaded, dispatch.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var seen []string
+	ev, err := a.Dispatch(ctx, a.LocalEntry(), bundle.Data, true, taskboard.Party{Node: a.Cfg.Name}, func(e dispatch.Event) { seen = append(seen, e.Type) })
+	if err != nil || ev.Status != dispatch.StatusSucceeded || ev.Digest == "" {
+		t.Fatalf("self dispatch: %+v, %v", ev, err)
+	}
+	if len(seen) == 0 || seen[0] != "accepted" || seen[len(seen)-1] != "done" {
+		t.Fatalf("events = %v", seen)
+	}
+	if j, ok := a.queue.Get(ev.JobID); !ok || j.Submitter.PeerID != a.Host.ID().String() {
+		t.Fatalf("job not in daemon queue with local submitter: %+v %v", j, ok)
+	}
+	a.Store.SetService("exec", false)
+	if _, err := a.Dispatch(ctx, a.LocalEntry(), bundle.Data, false, taskboard.Party{Node: a.Cfg.Name}, nil); err == nil {
+		t.Fatal("self dispatch ignored disabled exec service")
+	}
+}
+
 func TestDispatchSubmitFixture(t *testing.T) {
 	cidrs := []string{"127.0.0.1/32", "127.0.0.2/32"}
 	a := startTestNode(t, "submitter", "127.0.0.1", false, cidrs)
