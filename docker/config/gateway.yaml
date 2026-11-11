@@ -1,0 +1,18 @@
+# Example gateway: relay + files, never exec. Edit trusted_cidrs to include
+# your real LAN before joining machines outside this compose network.
+name: gateway
+listen: 0.0.0.0:18765
+api: 127.0.0.1:18780
+trusted_cidrs:
+  - 10.88.0.0/24
+  - 127.0.0.0/8
+services:
+  exec: false
+  files: true
+  relay: true
+policy:
+  allow: []
+  deny: []
+scan_interval: 1m
+scan_hosts:
+  - host.docker.internal

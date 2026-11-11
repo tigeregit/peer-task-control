@@ -86,11 +86,11 @@ workspace 必须与实际做种、下载、记录和协调元数据目录分离�
 
 打印二进制版本（开发构建为 `0.3.0-dev`，Release 构建为标签去掉 `v`），后接换行。不需要配置或正在运行的 daemon。
 
-### `ptc skill print`
+### `ptc skill print [topic]` / `ptc skill list`
 
-打印与当前二进制绑定的 agent skill 正文，并在末尾追加一行 `# bound-to-version <版本>`。
+打印与当前二进制绑定的 agent skill。`ptc skill print` 输出索引；`ptc skill print <topic>` 输出指定主题（`submit`、`resources`、`install`、`discovery`、`storage`、`errors`）；`ptc skill list` 列出主题，可加 `--json`。
 
-始终打印编译进二进制的内嵌文本，不再读取当前目录或旧安装残留的 `SKILL.md`，避免更新后 usage 与实际二进制能力不一致。仓库 `SKILL.md` 与 `cmd/ptc/skill.txt` 保持一致。
+正文始终来自编译进二进制的内嵌文本，并在 `print` 末尾追加一行 `# bound-to-version <版本>`。不再读取当前目录或旧安装残留的 `SKILL.md`，避免更新后 usage 与实际二进制能力不一致。仓库根目录 `SKILL.md` 必须与 `cmd/ptc/skill/SKILL.md` 保持一致。
 
 不需要正在运行的 daemon。
 
@@ -262,9 +262,9 @@ NAME  PEER ID  EXEC  FILES  RELAY  ADDRS
 
 看板会持续显示一条实时任务「网格目录监视 / Mesh catalog watch」，并汇总本机 `--tasks` / `--runs` 以及网格里其他节点公开的运行记录（守护进程 `GET /api/v1/runs` 会向邻居拉取 `/ptc/runs/1.0.0`）。任务和资源列表都支持搜索、状态/类型筛选和排序。顶栏还有「资源」分栏：列出全网种子的 digest、bitswap 传输 CID、大小、所在节点数、创建时间，以及到当前设备（看板所连接的 daemon）的最短中转次数，并支持下载。列表可按列头升序或降序排序；digest 去掉 `sha256:` 前缀，默认只显示哈希前 8 位加 `***`，点眼睛按钮可展开。任务摘要里的结果种子可点进对应资源页。点击「节点」里的某一台设备，可查看硬件信息、历史任务和该节点存储的种子；再点具体任务或种子会跳到对应分栏。CLI 与看板共用同一套本机控制接口和查询语义（`internal/query`）。看板是只读界面：任务 / 资源 / 节点的查看、筛选、排序、搜索和种子下载都可以在 CLI 里用同样的参数完成（`ptc tasks`、`ptc resources`、`ptc peers` / `peers show`）。CLI 额外提供控制能力，看板不会代理这些写操作：`ptc daemon`、`ptc policy`（改白名单 / 黑名单 / 服务开关）、`ptc submit`（本机或 `--target` 下发）、`ptc cancel`、`ptc clean`，以及 `ptc resources show --list-files`（展开超过 100 个文件的目录树）。看板会列出邻居执行完的作业（包括 CUDA），但不能提交或取消。
 
-Docker 演示里除了 `gateway` / `worker-a` / `worker-b` 三个容器，还可以在 Windows 本机启动原生 `host` 节点（真实 NVIDIA GPU）：先保证网格已 `up`，再在仓库根目录运行 `powershell -File docker/run-host-node.ps1`。网关通过 `scan_hosts: host.docker.internal` 探测本机 `18765` 端口。停止用 `powershell -File docker/run-host-node.ps1 -Stop`。
+Docker 部署编排默认启动 `gateway`（中转 + 文件，无 GPU）、`files`（只做种）和只读 `webui`。还可以在 Windows 本机启动原生 `host` 节点（真实 NVIDIA GPU）：先保证部署网格已 `up`，再在仓库根目录运行 `powershell -File docker/run-host-node.ps1`。网关通过 `scan_hosts: host.docker.internal` 探测本机 `18765` 端口。停止用 `powershell -File docker/run-host-node.ps1 -Stop`。若要加入 P0-C 测试网格，使用 `powershell -File docker/run-host-node.ps1 -TestMesh`。
 
-可选的 Ubuntu CUDA 执行节点不要写进默认 live compose。在已有 NVIDIA Container Toolkit / Docker Desktop GPU 直通的机器上，用叠加文件启动官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04` 节点（名为 `cuda`，exec+files，无中继，GPU 以容器内 `nvidia-smi` 为准）：
+可选的 Ubuntu CUDA 执行节点不要写进默认部署编排。在已有 NVIDIA Container Toolkit / Docker Desktop GPU 直通的机器上，用叠加文件启动官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04` 节点（名为 `cuda`，exec+files，无中继，GPU 以容器内 `nvidia-smi` 为准）：
 
 ```text
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda
@@ -272,7 +272,7 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml st
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml rm -f cuda
 ```
 
-先确认 `docker run --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` 能看到真实 GPU。本仓库在驱动 616.56 上试过同样已发布的 `13.5.0-devel-ubuntu22.04`，被 `nvidia-container-cli` 以 `cuda>=13.5` 拒绝，因此叠加层使用 12.9.2。示例作业：`ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda`。
+先确认 `docker run --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` 能看到真实 GPU。本仓库在驱动 616.56 上试过同样已发布的 `13.5.0-devel-ubuntu22.04`，被 `nvidia-container-cli` 以 `cuda>=13.5` 拒绝，因此叠加层使用 12.9.2。示例作业：`ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda`。完整部署说明见 [docker/README.md](../docker/README.md)。
 
 
 ```text
@@ -289,7 +289,7 @@ ptc webui --listen 127.0.0.1:18790 --api 127.0.0.1:18780
 
 相关接口：`GET /`、`GET /live/tasks`、`GET /live/status`、`GET /live/resources`、`GET /live/resources/sha256/{hex}`、`GET /live/resources/sha256/{hex}/content`、`GET /live/meta`。`GET /live/report` 会重定向到 `/live/tasks`。
 
-Docker 跨网段模拟会把该看板映射到主机的 `http://127.0.0.1:18790`。默认 compose 不会挂载录制的测试任务，也不会给容器节点伪装 GPU；节点硬件以 daemon 探测到的真实信息为准。需要跑官方 P0-C 角色断言时，另加 `-f docker/docker-compose.p0-test.yml`（不要和正在使用的看板叠在一起）。
+部署编排和跨网段测试都会把看板映射到主机的 `http://127.0.0.1:18790`。默认部署 compose 不会挂载录制的测试任务，也不会给容器节点伪装 GPU；节点硬件以 daemon 探测到的真实信息为准。需要跑官方 P0-C 角色断言时，使用 `docker/test/docker-compose.yml` 并加上 `-f docker/test/docker-compose.p0-test.yml`（不要和正在使用的真实看板或部署编排叠在一起）。
 
 
 ### `ptc resources`

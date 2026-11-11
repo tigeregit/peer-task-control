@@ -4,7 +4,14 @@ import json
 import subprocess
 import sys
 
-COMPOSE = ["docker", "compose", "-f", "docker/docker-compose.yml"]
+COMPOSE = [
+    "docker",
+    "compose",
+    "-f",
+    "docker/test/docker-compose.yml",
+    "-f",
+    "docker/test/docker-compose.p0-test.yml",
+]
 
 
 def peers(service: str) -> dict:

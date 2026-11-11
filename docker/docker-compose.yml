@@ -1,83 +1,83 @@
-# Simulate the real mesh: two isolated trusted subnets and a whitelist
-# gateway that can reach both, store data, and forward — but has no NVIDIA GPU.
-# This default file is what the live WebUI uses: no mocked GPUs and no recorded
-# test tasks. Official P0-C tests that need a fake nvidia-smi should also pass
-# -f docker/docker-compose.p0-test.yml.
-name: ptc-p0
+# Deploy a small real mesh on one host: a no-GPU gateway, a files node,
+# and a read-only WebUI sidecar. This is not the P0-C isolation test
+# (that lives in docker/test/). Do not mount mocked GPUs or recorded
+# fixture tasks here. The gateway has no GPU and must never be a CUDA
+# exec target.
+#
+#   docker compose -f docker/docker-compose.yml up -d --build
+#   # optional GPU node:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda
+#
+# Example trusted CIDR is the compose network 10.88.0.0/24. Add your
+# real LAN CIDRs in docker/config/*.yaml before joining other machines.
+name: ptc
 
 networks:
-  seg_a:
-    name: ptc-seg-a
+  mesh:
+    name: ptc-mesh
     ipam:
       config:
-        - subnet: 10.87.0.0/24
-  seg_b:
-    name: ptc-seg-b
-    ipam:
-      config:
-        - subnet: 10.87.1.0/24
+        - subnet: 10.88.0.0/24
 
 services:
-  worker-a:
+  gateway:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: ptc:p0
-    hostname: worker-a
-    networks:
-      seg_a:
-        ipv4_address: 10.87.0.10
-    volumes:
-      - ./testdata/worker-a.yaml:/etc/ptc/config.yaml:ro
-      - a-data:/data
-    command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
-
-  worker-b:
-    image: ptc:p0
-    hostname: worker-b
-    depends_on:
-      - worker-a
-    networks:
-      seg_b:
-        ipv4_address: 10.87.1.10
-    volumes:
-      - ./testdata/worker-b.yaml:/etc/ptc/config.yaml:ro
-      - b-data:/data
-    command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
-
-  # The Windows host itself is not a container. Run it with
-  # docker/run-host-node.ps1; the gateway probes host.docker.internal:18765.
-  gateway:
-    image: ptc:p0
+    image: ptc:local
     hostname: gateway
-    depends_on:
-      - worker-a
-      - worker-b
+    restart: unless-stopped
     networks:
-      seg_a:
-        ipv4_address: 10.87.0.2
-      seg_b:
-        ipv4_address: 10.87.1.2
+      mesh:
+        ipv4_address: 10.88.0.2
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
+      - "18765:18765/tcp"
+      - "18765:18765/udp"
       - "127.0.0.1:18790:18790"
     volumes:
-      - ./testdata/gateway.yaml:/etc/ptc/config.yaml:ro
-      - gw-data:/data
+      - ./config/gateway.yaml:/etc/ptc/config.yaml:ro
+      - gateway-data:/data
     command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
+    healthcheck:
+      test: ["CMD", "ptc", "peers", "--data-dir", "/data"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  files:
+    image: ptc:local
+    hostname: files
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      mesh:
+        ipv4_address: 10.88.0.10
+    volumes:
+      - ./config/files.yaml:/etc/ptc/config.yaml:ro
+      - files-data:/data
+    command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
+    healthcheck:
+      test: ["CMD", "ptc", "peers", "--data-dir", "/data"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
   webui:
-    image: ptc:p0
+    image: ptc:local
     network_mode: "service:gateway"
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
     entrypoint: ["ptc"]
-    # Live board only: mesh catalog and real run records from the daemon API.
-    # Do not mount recorded test tasks or mocked GPU fixtures here.
     command: ["webui", "--listen", "0.0.0.0:18790", "--api", "127.0.0.1:18780"]
 
 volumes:
-  a-data:
-  b-data:
-  gw-data:
+  gateway-data:
+  files-data:

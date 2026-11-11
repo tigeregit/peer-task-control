@@ -1,16 +1,16 @@
 # Optional overlay: an Ubuntu exec node based on the official nvidia/cuda
-# image, with GPU passthrough. Keep this off the default live compose.
-# The default file has no mocked GPUs and no fixtures; this file adds a real
-# GPU peer named "cuda".
+# image, with GPU passthrough. Keep this off the default deploy compose.
+# Do not attach a GPU to the gateway.
 #
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml up -d --build cuda
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml stop cuda
 #   docker compose -f docker/docker-compose.yml -f docker/docker-compose.cuda.yml rm -f cuda
 #
-# Requires NVIDIA Container Toolkit / Docker Desktop GPU support on the host
-# that already has the RTX GPU. Do not start this overlay if `docker run
-# --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi` fails.
-name: ptc-p0
+# Requires NVIDIA Container Toolkit / Docker Desktop GPU support on the host.
+# Do not start this overlay if
+#   docker run --rm --gpus all nvidia/cuda:12.9.2-devel-ubuntu22.04 nvidia-smi
+# fails.
+name: ptc
 
 services:
   cuda:
@@ -19,14 +19,21 @@ services:
       dockerfile: docker/Dockerfile.cuda
     image: ptc:cuda
     hostname: cuda
+    restart: unless-stopped
     gpus: all
     networks:
-      seg_a:
-        ipv4_address: 10.87.0.20
+      mesh:
+        ipv4_address: 10.88.0.20
     volumes:
-      - ./testdata/cuda.yaml:/etc/ptc/config.yaml:ro
+      - ./config/cuda.yaml:/etc/ptc/config.yaml:ro
       - cuda-data:/data
     command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
+    healthcheck:
+      test: ["CMD", "ptc", "peers", "--data-dir", "/data"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
 
 volumes:
   cuda-data:

@@ -1,11 +1,29 @@
-# Official NVIDIA CUDA devel image plus the ptc Linux binary.
-# Build the binary on the host first:
-#   GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o docker/ptc-linux ./cmd/ptc
+# syntax=docker/dockerfile:1
+# Official NVIDIA CUDA devel image plus a ptc binary built in this file.
 # Published Docker Hub tag, not an invented name. 13.5.0-devel-ubuntu22.04
-# is also published, but the live host's driver (616.56) refused it
+# is also published, but a live host driver (616.56) refused it
 # (nvidia-container-cli: cuda>=13.5). 12.9.2 works with an RTX 5070.
+#
+#   docker build -t ptc:cuda -f docker/Dockerfile.cuda .
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=dev
+ARG GOPROXY=https://proxy.golang.org,direct
+WORKDIR /src
+ENV GOPROXY=${GOPROXY}
+ENV CGO_ENABLED=0
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
+    -ldflags "-s -w -X github.com/tigeregit/peer-task-control/internal/version.Version=${VERSION}" \
+    -o /out/ptc ./cmd/ptc
+
 FROM nvidia/cuda:12.9.2-devel-ubuntu22.04
-COPY docker/ptc-linux /usr/local/bin/ptc
+COPY --from=build /out/ptc /usr/local/bin/ptc
 WORKDIR /data
+EXPOSE 18765/tcp
+EXPOSE 18765/udp
 ENTRYPOINT ["ptc"]
 CMD ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]

@@ -1,0 +1,24 @@
+# Optional CUDA overlay for the P0-C *test* networks (10.87.x).
+# For a real deploy, use docker/docker-compose.yml + docker/docker-compose.cuda.yml.
+#
+#   docker compose -f docker/test/docker-compose.yml -f docker/test/docker-compose.cuda.yml up -d --build cuda
+name: ptc-p0-test
+
+services:
+  cuda:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.cuda
+    image: ptc:cuda
+    hostname: cuda
+    gpus: all
+    networks:
+      seg_a:
+        ipv4_address: 10.87.0.20
+    volumes:
+      - ./testdata/cuda.yaml:/etc/ptc/config.yaml:ro
+      - cuda-data:/data
+    command: ["daemon", "--config", "/etc/ptc/config.yaml", "--data-dir", "/data"]
+
+volumes:
+  cuda-data:

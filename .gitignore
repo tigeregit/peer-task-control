@@ -10,15 +10,23 @@ coverage.out
 .DS_Store
 Thumbs.db
 
+# Local build leftovers (legacy and current)
 docker/ptc-linux
 docker/tcpprobe-linux
+docker/ptc-windows.exe
+docker/test/ptc-linux
+docker/test/tcpprobe-linux
 
 # Copied result packages for the Docker mesh (often large)
 docker/testdata/node-packages/**
 !docker/testdata/node-packages/.gitkeep
 !docker/testdata/node-packages/**/.gitkeep
-docker/ptc-windows.exe
+docker/test/testdata/node-packages/**
+!docker/test/testdata/node-packages/.gitkeep
+!docker/test/testdata/node-packages/**/.gitkeep
 
 # Native Windows host node data (identity, runs, packages)
 docker/testdata/host-data/
+docker/test/testdata/host-data/
+docker/data/
 vendor/

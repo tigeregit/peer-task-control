@@ -1,3 +1,5 @@
+<!-- 路径说明：本文是历史测试记录。当时使用的 docker/docker-compose.yml 现为部署编排；复现跨网段测试请改用 docker/test/，真实 CUDA 节点仍可用 docker/docker-compose.yml 与 docker/docker-compose.cuda.yml。 -->
+
 # P2 测试报告
 
 - 版本：`0.2.0-p2`

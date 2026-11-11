@@ -1,6 +1,6 @@
 # Test-only overlay. Adds a mocked nvidia-smi so P0-C can assert exec roles
-# without a real GPU. Never use this file with the live WebUI.
-name: ptc-p0
+# without a real GPU. Never use this file with the live WebUI or deploy compose.
+name: ptc-p0-test
 
 services:
   worker-a:

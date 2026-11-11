@@ -1,9 +1,12 @@
-# Start or stop the native Windows ptc node that joins the Docker P0 mesh.
-# Usage:
-#   .\docker\run-host-node.ps1
+# Start or stop the native Windows ptc node that joins a Docker mesh.
+# Usage (from the repo root):
+#   .\docker\run-host-node.ps1              # deploy mesh (docker/config/host.yaml)
 #   .\docker\run-host-node.ps1 -Stop
+#   .\docker\run-host-node.ps1 -TestMesh    # P0-C test mesh (10.87.x)
+#   .\docker\run-host-node.ps1 -TestMesh -Stop
 param(
-    [switch]$Stop
+    [switch]$Stop,
+    [switch]$TestMesh
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,8 +14,13 @@ $Root = Split-Path -Parent $PSScriptRoot
 if (-not $Root) { $Root = (Resolve-Path "$PSScriptRoot\..").Path }
 $Exe = Join-Path $Root "docker\ptc-windows.exe"
 if (-not (Test-Path $Exe)) { $Exe = Join-Path $Root "ptc.exe" }
-$Config = Join-Path $Root "docker\testdata\host.yaml"
-$DataDir = Join-Path $Root "docker\testdata\host-data"
+if ($TestMesh) {
+    $Config = Join-Path $Root "docker\test\testdata\host.yaml"
+    $DataDir = Join-Path $Root "docker\test\testdata\host-data"
+} else {
+    $Config = Join-Path $Root "docker\config\host.yaml"
+    $DataDir = Join-Path $Root "docker\data\host"
+}
 $OutLog = Join-Path $DataDir "daemon.out.log"
 $ErrLog = Join-Path $DataDir "daemon.err.log"
 $PidFile = Join-Path $DataDir "daemon.pid"

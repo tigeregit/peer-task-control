@@ -1,0 +1,14 @@
+# Example Ubuntu CUDA exec node for the deploy overlay. Requires a real GPU.
+name: cuda
+listen: 0.0.0.0:18765
+api: 127.0.0.1:18780
+trusted_cidrs:
+  - 10.88.0.0/24
+services:
+  exec: true
+  files: true
+  relay: false
+policy:
+  allow: []
+  deny: []
+scan_interval: 1m
