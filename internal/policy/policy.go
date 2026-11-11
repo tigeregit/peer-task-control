@@ -117,6 +117,20 @@ func (s *Store) Remove(list, spec string) error {
 	return nil
 }
 
+// CheckPeer applies only the allow/deny lists (no service switch); used for
+// control-plane requests such as remote updates.
+func (s *Store) CheckPeer(peerID, name string, ip net.IP) Decision {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if matchAny(s.deny, peerID, name, ip) {
+		return Decision{Allow: false, Reason: "peer is on this host's deny list"}
+	}
+	if len(s.allow) > 0 && !matchAny(s.allow, peerID, name, ip) {
+		return Decision{Allow: false, Reason: "peer is not on this host's allow list"}
+	}
+	return Decision{Allow: true}
+}
+
 // Check reports whether a remote peer may use a local service.
 // peerID, name and ip are optional identifying attributes of the caller.
 func (s *Store) Check(service, peerID, name string, ip net.IP) Decision {

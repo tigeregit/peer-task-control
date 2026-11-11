@@ -24,13 +24,20 @@ type Caps struct {
 }
 
 type Entry struct {
-	PeerID    string                  `json:"peer_id"`
-	Name      string                  `json:"name"`
-	Addrs     []string                `json:"addrs"`
-	Services  map[string]ServiceState `json:"services"`
-	Caps      Caps                    `json:"caps"`
-	Disk      *disk.Usage             `json:"disk,omitempty"`
-	UpdatedAt time.Time               `json:"updated_at"`
+	PeerID   string                  `json:"peer_id"`
+	Name     string                  `json:"name"`
+	Addrs    []string                `json:"addrs"`
+	Services map[string]ServiceState `json:"services"`
+	Caps     Caps                    `json:"caps"`
+	Disk     *disk.Usage             `json:"disk,omitempty"`
+	// Version is the ptc version of the node (empty: older than 0.3.0).
+	Version string `json:"version,omitempty"`
+	// Managed: installed by `ptc install` (install.json present), so mesh
+	// updates can replace and restart it.
+	Managed bool `json:"managed,omitempty"`
+	// AcceptUpdate: update.accept_remote is on.
+	AcceptUpdate bool      `json:"accept_update,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Message struct {
@@ -104,7 +111,7 @@ func (b *Book) Snapshot() []Entry {
 }
 
 func equalEntry(a, b Entry) bool {
-	if a.PeerID != b.PeerID || a.Name != b.Name || a.Caps != b.Caps {
+	if a.PeerID != b.PeerID || a.Name != b.Name || a.Caps != b.Caps || a.Version != b.Version || a.Managed != b.Managed || a.AcceptUpdate != b.AcceptUpdate {
 		return false
 	}
 	if len(a.Addrs) != len(b.Addrs) {

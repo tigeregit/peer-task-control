@@ -19,7 +19,7 @@ func policyCmd() *cobra.Command {
 			return showPolicy()
 		},
 	}
-	cmd.AddCommand(policyShowCmd(), policyAllowCmd(), policyDenyCmd(), policyServiceCmd())
+	cmd.AddCommand(policyShowCmd(), policyAllowCmd(), policyDenyCmd(), policyServiceCmd(), policyUpdateCmd())
 	return cmd
 }
 
@@ -94,6 +94,39 @@ func policyServiceCmd() *cobra.Command {
 	}
 }
 
+func policyUpdateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "update <on|off>",
+		Short: "Accept (on, default) or refuse (off) mesh updates pushed by trusted peers",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			on, err := parseOnOff(args[0])
+			if err != nil {
+				return err
+			}
+			cli, err := controlClient()
+			if err != nil {
+				return err
+			}
+			p, err := cli.ApplyPolicy(control.PolicyChange{Op: "update", On: &on})
+			if err != nil {
+				return err
+			}
+			return printPolicy(p)
+		},
+	}
+}
+
+func parseOnOff(s string) (bool, error) {
+	switch strings.ToLower(s) {
+	case "on", "true", "1", "enable", "enabled":
+		return true, nil
+	case "off", "false", "0", "disable", "disabled":
+		return false, nil
+	}
+	return false, fmt.Errorf("want on or off, got %q", s)
+}
+
 func showPolicy() error {
 	cli, err := controlClient()
 	if err != nil {
@@ -110,6 +143,7 @@ func printPolicy(p control.PolicyView) error {
 	fmt.Printf("allow: %s\n", emptyDash(p.Allow))
 	fmt.Printf("deny:  %s\n", emptyDash(p.Deny))
 	fmt.Printf("exec:  %v\nfiles: %v\nrelay: %v\n", p.Exec, p.Files, p.Relay)
+	fmt.Printf("update (accept mesh updates): %v\n", p.RemoteUpdate)
 	return nil
 }
 

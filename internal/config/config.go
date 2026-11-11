@@ -45,6 +45,20 @@ type Storage struct {
 	RunsDir string `yaml:"runs_dir,omitempty"`
 }
 
+// Update is the policy for remote (mesh) upgrades of this node.
+type Update struct {
+	// AcceptRemote lets trusted mesh peers push a new ptc version to this
+	// node (same major version only). Default true; set false to refuse.
+	AcceptRemote *bool `yaml:"accept_remote,omitempty"`
+	// Repo is the GitHub owner/name used for release downloads.
+	Repo string `yaml:"repo,omitempty"`
+}
+
+// AcceptsRemoteUpdate reports the update.accept_remote policy (default on).
+func (c *Config) AcceptsRemoteUpdate() bool {
+	return c == nil || c.Update.AcceptRemote == nil || *c.Update.AcceptRemote
+}
+
 // Exec controls how this node runs dispatched jobs.
 type Exec struct {
 	// Concurrency is how many jobs this exec node runs at once. Default 1.
@@ -79,6 +93,7 @@ type Config struct {
 	Storage      Storage      `yaml:"storage,omitempty"`
 	Exec         Exec         `yaml:"exec,omitempty"`
 	Transfer     Transfer     `yaml:"transfer,omitempty"`
+	Update       Update       `yaml:"update,omitempty"`
 	Path         string       `yaml:"-"`
 	TrustedNets  []*net.IPNet `yaml:"-"`
 	PSKBytes     []byte       `yaml:"-"`

@@ -69,6 +69,7 @@ type Node struct {
 	disk      disk.Usage
 	diskAt    time.Time
 	dp        *dataPlane
+	upd       updateState
 }
 
 func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node, error) {
@@ -124,6 +125,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 		execKick:  make(chan struct{}, 1),
 		selfAddrs: map[string]struct{}{},
 	}
+	n.initUpdate()
 	n.bumpLocal()
 	n.refreshSelfAddrs()
 	n.Catalog.Put(n.LocalEntry())
@@ -131,6 +133,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	h.SetStreamHandler(ProtocolCatalog, n.handleCatalog)
 	h.SetStreamHandler(ProtocolRuns, n.handleRuns)
 	h.SetStreamHandler(ProtocolResources, n.handleResources)
+	h.SetStreamHandler(ProtocolUpdate, n.handleUpdate)
 	if err := n.initExec(); err != nil {
 		cancel()
 		_ = h.Close()
@@ -263,8 +266,11 @@ func (n *Node) LocalEntry() catalog.Entry {
 			OS:      n.Caps.OS,
 			Arch:    n.Caps.Arch,
 		},
-		UpdatedAt: updated,
-		Disk:      n.diskUsage(),
+		UpdatedAt:    updated,
+		Disk:         n.diskUsage(),
+		Version:      version.Version,
+		Managed:      n.managed(),
+		AcceptUpdate: n.Cfg.AcceptsRemoteUpdate(),
 	}
 }
 

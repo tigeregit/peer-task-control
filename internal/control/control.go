@@ -95,10 +95,12 @@ type PolicyView struct {
 	Exec  bool     `json:"exec"`
 	Files bool     `json:"files"`
 	Relay bool     `json:"relay"`
+	// RemoteUpdate is update.accept_remote.
+	RemoteUpdate bool `json:"remote_update"`
 }
 
 type PolicyChange struct {
-	Op      string `json:"op"` // allow_add, allow_rm, deny_add, deny_rm, service
+	Op      string `json:"op"` // allow_add, allow_rm, deny_add, deny_rm, service, update
 	Spec    string `json:"spec,omitempty"`
 	Service string `json:"service,omitempty"`
 	On      *bool  `json:"on,omitempty"`
@@ -389,4 +391,54 @@ func (c *Client) Pull(digest string) (PullResult, error) {
 	}
 	err := c.withTimeout(6*time.Hour).post("/api/v1/resources/sha256/"+hex+"/pull", struct{}{}, &out)
 	return out, err
+}
+
+// UpdateAsset is one platform binary offered in a mesh update.
+type UpdateAsset struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
+	Size   int64  `json:"size"`
+}
+
+// MeshUpdateRequest drives `ptc update --mesh`.
+type MeshUpdateRequest struct {
+	Version   string   `json:"version,omitempty"` // default: this node's version
+	Nodes     []string `json:"nodes,omitempty"`   // names or peer IDs; default all eligible
+	Batch     int      `json:"batch,omitempty"`   // nodes per stage (default 1)
+	AssetsDir string   `json:"assets_dir,omitempty"`
+	DryRun    bool     `json:"dry_run,omitempty"`
+}
+
+// MeshUpdateNode is the outcome for one node.
+type MeshUpdateNode struct {
+	Name      string   `json:"name"`
+	PeerID    string   `json:"peer_id"`
+	Platform  string   `json:"platform"`
+	From      string   `json:"from_version"`
+	To        string   `json:"to_version,omitempty"`
+	Stage     int      `json:"stage,omitempty"`
+	Status    string   `json:"status"` // updated, planned, skipped, failed, current
+	Detail    string   `json:"detail,omitempty"`
+	Providers []string `json:"providers,omitempty"`
+	MiBs      float64  `json:"mib_s,omitempty"`
+	Took      string   `json:"took,omitempty"`
+}
+
+// MeshUpdateReport is the result of a mesh update.
+type MeshUpdateReport struct {
+	Version string                 `json:"version"`
+	Assets  map[string]UpdateAsset `json:"assets,omitempty"`
+	Nodes   []MeshUpdateNode       `json:"nodes"`
+}
+
+// MeshUpdate asks the local daemon to roll a version out to the mesh.
+func (c *Client) MeshUpdate(req MeshUpdateRequest) (MeshUpdateReport, error) {
+	var out MeshUpdateReport
+	err := c.withTimeout(3*time.Hour).post("/api/v1/update/mesh", req, &out)
+	return out, err
+}
+
+// Restart asks the local daemon to re-exec its (possibly replaced) binary.
+func (c *Client) Restart() error {
+	return c.post("/api/v1/update/restart", map[string]string{}, nil)
 }

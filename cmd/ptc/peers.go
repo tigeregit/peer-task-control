@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -34,18 +35,29 @@ func peersCmd() *cobra.Command {
 			}
 			fmt.Printf("local %s  peer %s  version %s\n\n", st.Name, st.PeerID, st.Version)
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tPEER ID\tEXEC\tFILES\tRELAY\tADDRS")
+			fmt.Fprintln(w, "NAME\tPEER ID\tVERSION\tEXEC\tFILES\tRELAY\tADDRS")
+			skew := map[string][]string{}
 			for _, e := range st.Peers {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+				v := versionCell(e)
+				skew[v] = append(skew[v], e.Name)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					e.Name,
 					shortID(e.PeerID),
+					v,
 					svcCell(e, "exec"),
 					svcCell(e, "files"),
 					svcCell(e, "relay"),
 					strings.Join(e.Addrs, ","),
 				)
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			if len(skew) > 1 {
+				fmt.Printf("\nversion skew: %s\n", skewLine(skew, st.Version))
+				fmt.Println("  update install-managed nodes with: ptc update --mesh  (older nodes: ptc install --ssh USER@HOST)")
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "print JSON")
@@ -111,6 +123,7 @@ func peersShow(id string, jsonOut bool) error {
 	} else {
 		fmt.Printf("gpu     none\n")
 	}
+	fmt.Printf("version %s\n", versionCell(entry))
 	fmt.Printf("addrs   %s\n", strings.Join(entry.Addrs, ", "))
 	fmt.Printf("exec    %s\n", svcCell(entry, "exec"))
 	fmt.Printf("files   %s\n", svcCell(entry, "files"))
@@ -224,4 +237,32 @@ func printDisk(u *disk.Usage) {
 		fmt.Printf("disk    %s (%s)  %s free / %s total  (%s used)\n",
 			v.Path, v.Role, humanSize(v.Free), humanSize(v.Total), humanSize(v.Used))
 	}
+}
+
+// versionCell shows the version plus whether the node takes mesh updates.
+func versionCell(e catalog.Entry) string {
+	if e.Version == "" {
+		return "<0.3.0"
+	}
+	switch {
+	case e.Managed && e.AcceptUpdate:
+		return e.Version
+	case e.Managed:
+		return e.Version + " (no remote update)"
+	default:
+		return e.Version + " (unmanaged)"
+	}
+}
+
+func skewLine(skew map[string][]string, local string) string {
+	keys := make([]string, 0, len(skew))
+	for k := range skew {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s: %s", k, strings.Join(skew[k], ", ")))
+	}
+	return strings.Join(parts, "; ") + " (this node: " + local + ")"
 }

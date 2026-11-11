@@ -38,6 +38,7 @@ type dataPlane struct {
 	verified map[string]time.Time // digest -> last time its DAG was checked complete
 	gcKey    string
 	pulls    sync.Map // digest -> *sync.Mutex
+	idx      sync.Mutex
 }
 
 func (n *Node) startDataPlane() {
@@ -111,6 +112,8 @@ func (n *Node) indexLoop() {
 // where needed) and garbage-collects blocks no local seed references.
 func (n *Node) indexOnce(ctx context.Context) {
 	dp := n.dp
+	dp.idx.Lock()
+	defer dp.idx.Unlock()
 	seeds := resource.InventoryAt(n.Cfg.PackagesDir(), n.Cfg.CASDir())
 	var roots []cid.Cid
 	changed := false
