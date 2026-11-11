@@ -1,13 +1,19 @@
 package clean
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/tigeregit/peer-task-control/internal/config"
 	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/run"
+	"github.com/tigeregit/peer-task-control/internal/workflow"
+	"github.com/tigeregit/peer-task-control/internal/worktreeguard"
 )
 
 func testCfg(t *testing.T) *config.Config {
@@ -123,5 +129,99 @@ func TestCleanResourceRefusesActive(t *testing.T) {
 	}
 	if len(plans) != 1 || plans[0].Allowed {
 		t.Fatalf("should refuse active seed: %+v", plans)
+	}
+}
+
+func TestCleanWorktreeRechecksBeforeRemoval(t *testing.T) {
+	cfg := testCfg(t)
+	dir := filepath.Join(cfg.WorktreesDir(), "job")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plans, err := PlanWorktrees(cfg, Options{})
+	if err != nil || len(plans) != 1 || !plans[0].Allowed {
+		t.Fatalf("initial plan: %+v, %v", plans, err)
+	}
+	guard, err := worktreeguard.TryLock(cfg.WorktreesDir(), filepath.Join(dir, "nested"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := PlanWorktrees(cfg, Options{})
+	if err != nil || len(active) != 1 || active[0].Allowed {
+		t.Fatalf("active worktree plan: %+v, %v", active, err)
+	}
+	if _, err := Apply(plans); !errors.Is(err, worktreeguard.ErrBusy) || plans[0].Allowed {
+		t.Fatalf("stale plan was not rejected: %+v, %v", plans, err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("active worktree removed: %v", err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	plans, err = PlanWorktrees(cfg, Options{})
+	if err != nil || len(plans) != 1 || !plans[0].Allowed {
+		t.Fatalf("completed worktree plan: %+v, %v", plans, err)
+	}
+	if _, err := Apply(plans); err != nil {
+		t.Fatal(err)
+	}
+}
+
+type blockingOutput struct {
+	ready   chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingOutput) Write(p []byte) (int, error) {
+	w.once.Do(func() { close(w.ready) })
+	<-w.release
+	return len(p), nil
+}
+
+func TestCleanRejectsRunningLocalSubmit(t *testing.T) {
+	cfg := testCfg(t)
+	name := "workflow.yaml"
+	if runtime.GOOS == "windows" {
+		name = "workflow.windows.yaml"
+	}
+	loaded, err := workflow.LoadJob(filepath.Join("..", "..", "testdata", "submit", name), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := &blockingOutput{ready: make(chan struct{}), release: make(chan struct{})}
+	result := make(chan error, 1)
+	go func() {
+		_, err := run.Submit(loaded, run.Options{DataDir: cfg.DataDir, Force: true, KeepWorktree: true, Stdout: out})
+		result <- err
+	}()
+	released := false
+	defer func() {
+		if !released {
+			close(out.release)
+		}
+	}()
+	select {
+	case <-out.ready:
+	case err := <-result:
+		t.Fatalf("submit ended before creating the worktree: %v", err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("submit did not reach the running worktree")
+	}
+	plans, err := PlanWorktrees(cfg, Options{})
+	if err != nil || len(plans) != 1 || plans[0].Allowed {
+		t.Fatalf("running local submit is not protected: %+v, %v", plans, err)
+	}
+	if _, err := Apply(plans); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(plans[0].Path); err != nil {
+		t.Fatalf("running worktree was deleted: %v", err)
+	}
+	close(out.release)
+	released = true
+	if err := <-result; err != nil {
+		t.Fatal(err)
 	}
 }

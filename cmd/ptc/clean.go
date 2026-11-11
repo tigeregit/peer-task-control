@@ -18,6 +18,8 @@ func cleanCmd() *cobra.Command {
 deletion is not implemented; enable it later only if the target sets policy.remote_clean.
 
 Worktrees are independent of seeds: cleaning a worktree never deletes CAS or packages.
+Active worktrees are protected by process locks, including when a job starts after
+the plan is made. Drain old-version tasks before upgrading and cleaning worktrees.
 Pinned seeds/packages are kept unless --force. Seeds still referenced by a queued or
 running job are refused. --dry-run lists paths and bytes; --yes is required to delete
 (so non-interactive agents can pass it).`,

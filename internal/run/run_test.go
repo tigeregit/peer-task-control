@@ -145,3 +145,16 @@ func TestSameTimeJobsHaveSeparateRecordsAndWorktrees(t *testing.T) {
 		t.Fatalf("expected both records, got %+v", tasks)
 	}
 }
+
+func TestWorkspaceCleanupCannotRemoveGuardDirectory(t *testing.T) {
+	loaded, err := workflow.LoadJob(filepath.Join("..", "..", "testdata", "submit", "workflow.yaml"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	loaded.Prepare.Layout.Root = filepath.Join(dir, "worktrees")
+	loaded.Package.Cleanup.EvictWorktree = true
+	if _, err := Submit(loaded, Options{DataDir: dir, Force: true}); err == nil {
+		t.Fatal("automatic cleanup could remove the worktree lock directory")
+	}
+}

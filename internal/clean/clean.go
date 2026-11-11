@@ -1,6 +1,7 @@
 package clean
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/tigeregit/peer-task-control/internal/dispatch"
 	"github.com/tigeregit/peer-task-control/internal/resource"
 	"github.com/tigeregit/peer-task-control/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/worktreeguard"
 )
 
 type Kind string
@@ -256,7 +258,13 @@ func PlanWorktrees(cfg *config.Config, opt Options) ([]Plan, error) {
 	}
 	var out []Plan
 	root := cfg.WorktreesDir()
-	ents, _ := os.ReadDir(root)
+	ents, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	for _, e := range ents {
 		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
@@ -265,7 +273,16 @@ func PlanWorktrees(cfg *config.Config, opt Options) ([]Plan, error) {
 			continue
 		}
 		dir := filepath.Join(root, e.Name())
-		out = append(out, Plan{Kind: Worktrees, Path: dir, ID: e.Name(), Bytes: dirSize(dir), Allowed: true})
+		p := Plan{Kind: Worktrees, Path: dir, ID: e.Name(), Bytes: dirSize(dir), Allowed: true}
+		guard, err := worktreeguard.TryLock(root, dir)
+		if errors.Is(err, worktreeguard.ErrBusy) {
+			p.Allowed, p.Reason = false, "worktree is active"
+		} else if err != nil {
+			return nil, err
+		} else if err := guard.Close(); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
 	}
 	return out, nil
 }
@@ -281,8 +298,26 @@ func blocked(p Plan, force bool, active map[string][]string) string {
 }
 
 func Apply(plans []Plan) (freed int64, err error) {
-	for _, p := range plans {
+	for i := range plans {
+		p := &plans[i]
 		if !p.Allowed {
+			continue
+		}
+		if p.Kind == Worktrees {
+			guard, err := worktreeguard.TryLock(filepath.Dir(p.Path), p.Path)
+			if errors.Is(err, worktreeguard.ErrBusy) {
+				p.Allowed, p.Reason = false, "worktree became active"
+				return freed, fmt.Errorf("%s: %w", p.Path, err)
+			}
+			if err != nil {
+				return freed, err
+			}
+			removeErr := os.RemoveAll(p.Path)
+			closeErr := guard.Close()
+			if removeErr != nil || closeErr != nil {
+				return freed, errors.Join(removeErr, closeErr)
+			}
+			freed += p.Bytes
 			continue
 		}
 		if err := os.RemoveAll(p.Path); err != nil {

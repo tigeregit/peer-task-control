@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/tigeregit/peer-task-control/internal/resource"
 	"github.com/tigeregit/peer-task-control/internal/taskboard"
 	"github.com/tigeregit/peer-task-control/internal/workflow"
+	"github.com/tigeregit/peer-task-control/internal/worktreeguard"
 )
 
 type Options struct {
@@ -115,7 +117,7 @@ func (opt Options) FetchTmpDir() string {
 	return filepath.Join(opt.seedsDir(), ".fetch")
 }
 
-func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
+func Submit(loaded workflow.Loaded, opt Options) (res Result, retErr error) {
 	if opt.Stdout == nil {
 		opt.Stdout = io.Discard
 	}
@@ -154,11 +156,25 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 	if workRoot == "" {
 		workRoot = filepath.Join(opt.worktreesDir(), id)
 	}
+	if loaded.Package.Cleanup.EvictWorktree && !opt.KeepWorktree {
+		containsLocks, err := worktreeguard.ContainsLockDir(opt.worktreesDir(), workRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		if containsLocks {
+			return Result{}, fmt.Errorf("worktree cleanup would remove the worktree lock directory; use a different layout.root or --keep-worktree")
+		}
+	}
+	guard, err := worktreeguard.TryLock(opt.worktreesDir(), workRoot)
+	if err != nil {
+		return Result{}, fmt.Errorf("guard worktree %s: %w", workRoot, err)
+	}
+	defer func() { retErr = errors.Join(retErr, guard.Close()) }()
 	pkgDir := filepath.Join(opt.packagesDir(), id)
 	runsDir := opt.runsDir()
 	store := cas.New(opt.casDir())
 
-	res := Result{ID: opt.RunID, Worktree: workRoot, PackageDir: pkgDir}
+	res = Result{ID: opt.RunID, Worktree: workRoot, PackageDir: pkgDir}
 	job := taskboard.Job{ID: loaded.JobName, Name: taskboard.Text{ZH: loaded.JobName, EN: loaded.JobName}, StartedAt: taskboard.PtrTime(start)}
 	var recSteps []taskboard.Step
 
