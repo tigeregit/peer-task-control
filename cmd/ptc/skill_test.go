@@ -57,6 +57,8 @@ func TestSkillSync(t *testing.T) {
 
 func TestStaleSkillNotice(t *testing.T) {
 	home := isolateHome(t)
+	// Product behavior suppresses the notice when CI is set (GitHub Actions sets CI=true).
+	t.Setenv("CI", "")
 	dir := filepath.Join(home, ".agents", "skills", skills.Name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
