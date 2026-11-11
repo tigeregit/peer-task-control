@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ver="${GITHUB_REF_NAME#v}"
+          ldflags="-s -w"
+          build() {
+            local goos="$1" goarch="$2" out="$3"
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags "$ldflags" -o "dist/${out}" ./cmd/ptc
+          }
+          build linux amd64 ptc-linux-amd64
+          build linux arm64 ptc-linux-arm64
+          build windows amd64 ptc-windows-amd64.exe
+          build darwin amd64 ptc-darwin-amd64
+          build darwin arm64 ptc-darwin-arm64
+          cp cmd/ptc/skill.txt "dist/SKILL-${ver}.txt"
+          if [ -f SKILL.md ]; then
+            cp SKILL.md "dist/SKILL-${ver}.md"
+          fi
+          (cd dist && sha256sum * > SHA256SUMS)
+          echo "Built ${ver}:"
+          ls -l dist
+          cat dist/SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          name: ${{ github.ref_name }}
+          body_path: docs/release-notes/${{ github.ref_name }}.md
+          files: dist/*
+          fail_on_unmatched_files: true
