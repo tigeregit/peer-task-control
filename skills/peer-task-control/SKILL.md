@@ -112,7 +112,7 @@ ptc queue [--node <name>] [--json]
 ptc cancel <run-id> [--json]
 ptc tasks / tasks show <id> [--node <name-or-peer-id>] [--json]
 ptc resources / resources show|get|pull <digest> [--json]
-ptc clean outputs|runs|resource|worktrees [--match RE] [--dry-run] [--yes] [--force] [--json]
+ptc clean outputs|runs|resource|worktrees [--node <name-or-peer-id>] [--match RE] [--dry-run] [--yes] [--force] [--json]
 ptc webui
 ```
 
@@ -120,9 +120,7 @@ ptc webui
 
 `ptc dataset`, `ptc gc`, `ptc status`, `ptc logs`, `ptc artifacts`,
 UnixFS/filestore and full pin management, resolving inputs by CID or
-dataset name, remote `ptc clean --node` (local only unless a future
-`policy.remote_clean` protocol is added), and submitting or cancelling
-from the WebUI. Official full P3 UI and OS service installation are not
+dataset name, and submitting or cancelling from the WebUI. Official full P3 UI and OS service installation are not
 done. SSH install does not write a remote `install.json`, so those nodes
 are not mesh-update targets until a local update records the install.
 Standard Bitswap transport is implemented; see `references/resources.md`

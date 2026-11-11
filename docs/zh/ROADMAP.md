@@ -26,7 +26,7 @@
 - **P1 剩余**：UnixFS / filestore、CID / dataset 输入解析、分块缓存 GC；目录 manifest pin 已有，完整 pin 管理尚未提供。
 - **P3**：官方完整产品界面（当前只有只读看板）。
 - **P4 剩余**：操作系统服务安装；SSH 安装仍不写入远端 `install.json`。本机 / mesh 更新后的 daemon 重启，以及同主版本网格滚动升级已经提供。
-- 远程 `ptc clean --node`（清理只作用于本机）。提交者断开 follow 不会取消作业，需显式 `ptc cancel`。
+- 提交者断开 follow 不会取消作业，需显式 `ptc cancel`。
 
 ## 验证
 

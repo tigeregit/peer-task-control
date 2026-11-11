@@ -77,7 +77,7 @@ scan_min_interval: 60s
 #   concurrency: 1
 
 # Allow other trusted nodes to clean local seeds / worktrees / records over the protocol. Off by default.
-# ptc clean applies only locally by default.
+# Without this, ptc clean --node <this-node> is refused. Local ptc clean still works.
 # policy.remote_clean: false
 
 # Whether to accept a same-major-version mesh upgrade from a trusted peer that has a recorded install. On by default.

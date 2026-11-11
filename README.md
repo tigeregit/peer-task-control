@@ -80,7 +80,7 @@ Full flags, defaults, output formats, and the local API are in [docs/CLI.md](doc
 | `ptc queue` / `ptc cancel` | Inspect the queue or cancel a job (CLI only) |
 | `ptc tasks` | List or inspect run records published on the mesh |
 | `ptc resources` | List, inspect, download, or `pull` seeds from the mesh |
-| `ptc clean` | Clean local result packages, run records, seeds, or worktrees |
+| `ptc clean` | Clean result packages, run records, seeds, or worktrees locally or on a named node |
 | `ptc scan` | Trigger a discovery scan on the local node or a named gateway |
 
 The global seeding quota defaults to **40GB**, with an automatic cleanup target of **20GB**. Configure `storage.size_limit/delete_size`. See [Global storage rules](docs/CLI.md#global-storage-rules).

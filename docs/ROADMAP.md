@@ -26,7 +26,7 @@ The current version is `0.3.0` (see `internal/version/version.go`). Published ta
 - **P1 remaining**: UnixFS / filestore, CID / dataset input parsing, and block-cache GC. Directory-manifest pins exist; full pin management does not.
 - **P3**: the official complete product UI (currently only the read-only board).
 - **P4 remaining**: installing as an OS service; SSH install still does not write `install.json` on the remote. Daemon restart after a local / mesh update, and same-major-version mesh rolling updates, are already available.
-- Remote `ptc clean --node` (clean only applies locally). If the submitter drops follow, the job is not cancelled; use an explicit `ptc cancel`.
+- If the submitter drops follow, the job is not cancelled; use an explicit `ptc cancel`.
 
 ## Verification
 

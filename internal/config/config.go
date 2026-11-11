@@ -64,6 +64,16 @@ type Update struct {
 	AcceptRemote *bool `yaml:"accept_remote,omitempty"`
 }
 
+// AllowsRemoteClean reports whether trusted peers may request local cleanup.
+func (c *Config) AllowsRemoteClean() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Policy.RemoteClean
+}
+
 // AcceptsRemoteUpdate reports the update.accept_remote policy (default on).
 func (c *Config) AcceptsRemoteUpdate() bool {
 	if c == nil {

@@ -35,6 +35,7 @@ type Plan struct {
 	Name     string `json:"name,omitempty"`
 	Bytes    int64  `json:"bytes"`
 	Pinned   bool   `json:"pinned,omitempty"`
+	Unique   bool   `json:"unique,omitempty"` // this node holds the only known copy
 	Reason   string `json:"reason,omitempty"` // why it would be kept
 	Allowed  bool   `json:"allowed"`
 }
@@ -44,7 +45,11 @@ type Options struct {
 	IDs []string
 	// Match is a regular expression over run id, name, and job.
 	Match string
-	Force bool // allow pinned
+	Force bool // allow pinned items and unique resources
+	// Holders is the known mesh replica count per digest (len(Info.Locations)).
+	// A resource is unique when the digest is missing or the count is <= 1.
+	// A nil map fail-closes: unique status could not be confirmed.
+	Holders map[string]int
 }
 
 func (o Options) matcher() (*regexp.Regexp, error) {
@@ -192,8 +197,8 @@ func PlanOutputs(cfg *config.Config, opt Options, active map[string][]string) ([
 		if !matches(re, opt.IDs, hay, first(s.Digest, filepath.Base(dir))) {
 			continue
 		}
-		p := Plan{SeedsDir: cfg.SeedsDir(), Kind: Outputs, Path: dir, ID: s.Digest, Name: s.Name, Bytes: dirSize(dir), Pinned: s.Pin, Allowed: true}
-		if reason := blocked(p, opt.Force, active); reason != "" {
+		p := Plan{SeedsDir: cfg.SeedsDir(), Kind: Outputs, Path: dir, ID: s.Digest, Name: s.Name, Bytes: dirSize(dir), Pinned: s.Pin, Unique: uniqueResource(s.Digest, opt.Holders), Allowed: true}
+		if reason := blocked(p, opt, active); reason != "" {
 			p.Allowed, p.Reason = false, reason
 		}
 		out = append(out, p)
@@ -245,8 +250,8 @@ func PlanResources(cfg *config.Config, opt Options, active map[string][]string) 
 		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
 			n = fi.Size()
 		}
-		p := Plan{SeedsDir: cfg.SeedsDir(), Kind: Resources, Path: path, ID: s.Digest, Name: seed.Name, Bytes: n, Pinned: seed.Pin, Allowed: true}
-		if reason := blocked(p, opt.Force, active); reason != "" {
+		p := Plan{SeedsDir: cfg.SeedsDir(), Kind: Resources, Path: path, ID: s.Digest, Name: seed.Name, Bytes: n, Pinned: seed.Pin, Unique: uniqueResource(s.Digest, opt.Holders), Allowed: true}
+		if reason := blocked(p, opt, active); reason != "" {
 			p.Allowed, p.Reason = false, reason
 		}
 		out = append(out, p)
@@ -290,7 +295,7 @@ func PlanWorktrees(cfg *config.Config, opt Options) ([]Plan, error) {
 	return out, nil
 }
 
-func blocked(p Plan, force bool, active map[string][]string) string {
+func blocked(p Plan, opt Options, active map[string][]string) string {
 	if p.SeedsDir != "" {
 		held, err := retention.Held(p.SeedsDir, p.ID)
 		if err != nil {
@@ -320,8 +325,14 @@ func blocked(p Plan, force bool, active map[string][]string) string {
 			}
 		}
 	}
-	if p.Pinned && !force {
+	if p.Pinned && !opt.Force {
 		return "pinned (pass --force to delete)"
+	}
+	if p.Unique && !opt.Force {
+		if opt.Holders == nil {
+			return "only known copy could not be confirmed (pass --force to delete)"
+		}
+		return "unique on the network (pass --force to delete)"
 	}
 	if ids := active[resource.Normalize(p.ID)]; len(ids) > 0 {
 		return "still referenced by queued/running job " + strings.Join(ids, ", ")
@@ -415,6 +426,27 @@ func Apply(plans []Plan) (freed int64, err error) {
 		freed += p.Bytes
 	}
 	return freed, nil
+}
+
+// HolderCounts maps each digest to its known mesh replica count (len(Locations)).
+func HolderCounts(infos []resource.Info) map[string]int {
+	out := map[string]int{}
+	for _, info := range infos {
+		digest := resource.Normalize(info.Digest)
+		if digest == "" {
+			continue
+		}
+		out[digest] = len(info.Locations)
+	}
+	return out
+}
+
+func uniqueResource(digest string, holders map[string]int) bool {
+	if holders == nil {
+		return true
+	}
+	n, ok := holders[resource.Normalize(digest)]
+	return !ok || n <= 1
 }
 
 func fileSize(p string) int64 {

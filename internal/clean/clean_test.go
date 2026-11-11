@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -109,6 +110,77 @@ func TestCleanWorktreesLeavesCAS(t *testing.T) {
 	}
 	if n := len(resource.InventoryAt(cfg.PackagesDir(), cfg.CASDir())); n == 0 {
 		t.Fatal("worktree clean deleted seeds")
+	}
+}
+
+func TestCleanResourceUniqueRequiresForce(t *testing.T) {
+	cfg := testCfg(t)
+	src := filepath.Join(t.TempDir(), "s")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "f"), []byte("unique"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := resource.PublishTreeTo(cfg.PackagesDir(), "s", src, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	holders := map[string]int{seed.Digest: 1}
+	plans, err := PlanResources(cfg, Options{IDs: []string{seed.Digest}, Holders: holders}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || !plans[0].Unique || plans[0].Allowed || !strings.Contains(plans[0].Reason, "unique on the network") {
+		t.Fatalf("unique resource should be refused without --force: %+v", plans)
+	}
+	if _, err := Apply(plans); err != nil {
+		t.Fatal(err)
+	}
+	if resource.FindPackageDirAt(cfg.PackagesDir(), seed.Digest) == "" {
+		t.Fatal("unique resource was deleted without --force")
+	}
+
+	forced, err := PlanResources(cfg, Options{IDs: []string{seed.Digest}, Force: true, Holders: holders}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(forced) != 1 || !forced[0].Allowed {
+		t.Fatalf("unique resource should be cleaned with --force: %+v", forced)
+	}
+	if _, err := Apply(forced); err != nil {
+		t.Fatal(err)
+	}
+	if resource.FindPackageDirAt(cfg.PackagesDir(), seed.Digest) != "" {
+		t.Fatal("forced unique resource is still present")
+	}
+}
+
+func TestCleanResourceReplicaAllowedWithoutForce(t *testing.T) {
+	cfg := testCfg(t)
+	src := filepath.Join(t.TempDir(), "s")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "f"), []byte("replica"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seed, err := resource.PublishTreeTo(cfg.PackagesDir(), "s", src, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := PlanResources(cfg, Options{IDs: []string{seed.Digest}, Holders: map[string]int{seed.Digest: 2}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || plans[0].Unique || !plans[0].Allowed {
+		t.Fatalf("non-unique resource should be allowed without --force: %+v", plans)
+	}
+	if _, err := Apply(plans); err != nil {
+		t.Fatal(err)
+	}
+	if resource.FindPackageDirAt(cfg.PackagesDir(), seed.Digest) != "" {
+		t.Fatal("non-unique resource was not deleted")
 	}
 }
 

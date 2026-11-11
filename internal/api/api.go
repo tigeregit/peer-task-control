@@ -64,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/queue", s.queue)
 	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
 	mux.HandleFunc("POST /api/v1/scan", s.scan)
+	mux.HandleFunc("POST /api/v1/clean", s.clean)
 	mux.HandleFunc("POST /api/v1/storage/ensure", s.storageEnsure)
 	mux.HandleFunc("POST /api/v1/update/mesh", s.meshUpdate)
 	mux.HandleFunc("POST /api/v1/update/restart", s.restart)

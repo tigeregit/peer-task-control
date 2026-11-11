@@ -21,7 +21,7 @@ func TestStaleResourcePlanCannotDeleteAReplacementWithAPromise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plans, err := PlanResources(cfg, Options{IDs: []string{old.Digest}}, nil)
+	plans, err := PlanResources(cfg, Options{IDs: []string{old.Digest}, Holders: map[string]int{old.Digest: 2}}, nil)
 	if err != nil || len(plans) != 1 || !plans[0].Allowed {
 		t.Fatalf("plan: %+v, %v", plans, err)
 	}

@@ -80,7 +80,7 @@ ptc skill sync
 | `ptc queue` / `ptc cancel` | 查看队列或取消作业（仅 CLI） |
 | `ptc tasks` | 列出或查看网格内公开的运行记录 |
 | `ptc resources` | 列出、查看、下载或 `pull` 全网种子 |
-| `ptc clean` | 本机清理结果包、运行记录、种子或工作树 |
+| `ptc clean` | 清理本机或指定节点上的结果包、运行记录、种子或工作树 |
 | `ptc scan` | 触发本机或指定网关的发现扫描 |
 
 全局做种限额默认 **40GB**，自动清理目标 **20GB**，可配置 `storage.size_limit/delete_size`。详见 [全局存储规则](docs/zh/CLI.md#全局存储规则)。

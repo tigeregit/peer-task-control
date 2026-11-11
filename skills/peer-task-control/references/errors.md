@@ -22,8 +22,10 @@
 7. Disk pressure → `ptc peers show <name> --json` (real volume totals and
    ptc usage). Free space with `ptc clean … --dry-run` then `--yes`.
    Worktrees and seeds are **different stores**; cleaning a worktree never
-   deletes CAS/packages. Pinned items need `--force`. Seeds referenced by
-   queued/running jobs are refused. ptc clean is local-only.
+   deletes CAS/packages. Pinned items and unique-on-network resources need
+   `--force`. Seeds referenced by queued/running jobs are refused. To clean
+   another node, use `ptc clean --node <name>` after that node enables
+   `policy.remote_clean`.
 8. Still stuck → read `docs/DESIGN.md`, `docs/CLI.md`,
    `docs/CONTRIBUTING.md`. Do not patch a running node out of tree.
 

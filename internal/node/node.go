@@ -153,6 +153,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	h.SetStreamHandler(ProtocolUpdate, n.handleUpdate)
 	h.SetStreamHandler(ProtocolRetention, n.handleRetention)
 	h.SetStreamHandler(ProtocolScan, n.handleScan)
+	h.SetStreamHandler(ProtocolClean, n.handleClean)
 	n.initUpdate()
 	if err := n.initExec(); err != nil {
 		cancel()

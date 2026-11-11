@@ -41,12 +41,16 @@ Run/queue history is not automatically removed by this policy.
 The persistent `seeds_dir/blocks` cache has no GC; `ptc clean resource`
 does not reclaim it. Cache and staging count toward seed disk usage.
 
-## `ptc clean` (local only)
+## `ptc clean`
 
-`ptc clean outputs|runs|resource|worktrees` reclaims local data. Use
-`--dry-run` first, then `--yes`. Pinned items need `--force`. Seeds
-referenced by queued/running jobs are refused. There is no remote
-`ptc clean --node`.
+`ptc clean outputs|runs|resource|worktrees` reclaims data. Without
+`--node` it uses local storage paths; `ptc clean --node <name-or-peer-id>`
+asks that peer over the mesh. The target must enable `policy.remote_clean`.
+Use `--dry-run` first, then `--yes`. Pinned items and resources that are
+unique on the network (this node holds the only known copy) need `--force`.
+If replica counts cannot be confirmed, treat the resource as unique. Seeds
+referenced by queued/running jobs are refused. Older remotes that lack the
+clean protocol fail with a clear error.
 
 Directory-only `data.pin_permanent: true` protects replicas from normal
 clean; blob pin is not supported.

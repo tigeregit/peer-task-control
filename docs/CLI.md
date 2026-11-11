@@ -420,7 +420,7 @@ YAML. Copy `config.example.yaml` and fill in at least one `trusted_cidrs` entry.
 | `storage.delete_size` | bytes or a unit string | `20GB` | Automatic cleanup target per round; defaults to half of the configured cap when omitted. |
 | `storage.workspace_limit` | bytes or a unit string | `0` | Combined cap of all workspaces; 0 means unlimited. |
 | `exec.concurrency` | integer | `1` | How many jobs this node runs at once; the rest queue. |
-| `policy.remote_clean` | bool | `false` | Reserved switch. Today `ptc clean` only cleans locally. |
+| `policy.remote_clean` | bool | `false` | When true, trusted peers may ask this node to run `ptc clean --node`. Off by default. |
 | `trusted_cidrs` | CIDR list | **required, at least one** | Trust boundary. Connections from outside the segments are always refused. Same-host loopback peering needs an explicit entry such as `127.0.0.0/8`. |
 | `psk` | 64 hex characters | empty (disabled) | Optional 32-byte key used to block noise from outside the segments. A `0x` prefix is allowed. Every node in the cluster must use the same value. |
 | `services.exec` | bool | `true` | Whether this host intends to offer exec. Without an NVIDIA GPU the catalog still marks it unavailable. |
@@ -459,6 +459,7 @@ The CLI calls the daemon's loopback API over HTTP (default `http://127.0.0.1:187
 | `GET` | `/api/v1/queue` | Jobs that are queued or running on the mesh |
 | `POST` | `/api/v1/cancel` | `{"id":"<run-id or job-id>"}`, cancel a queued or running job |
 | `POST` | `/api/v1/scan` | `{}` triggers a local scan; `{"node":"<relay name or peer-id>"}` asks a known relay. 202 accepted, 409 busy, 429 rate-limited (with `Retry-After`), 403 refused, 404 node not found. |
+| `POST` | `/api/v1/clean` | Local or remote cleanup: `kind`, optional `node`, `ids`, `match`, `dry_run`, `force`, `yes`. Without `node`, the local daemon cleans itself. 200 ok, 403 denied (including `policy.remote_clean` off), 404 node not found. Older daemons return 404 and should be upgraded. |
 | `POST` | `/api/v1/storage/ensure` | Capacity admission for a local runner: `incoming` bytes, `seeds_dir`, `worktrees_dir`, optional `reservation_id`. Returns 409 if the roots do not match, capacity is insufficient, or a safe cleanup is not possible. It only guarantees that check; the caller must also hold a disk reservation. |
 | `POST` | `/api/v1/update/mesh` | Rolling-update request (`version`, `nodes`, `batch`, `assets_dir`, `dry_run`) |
 | `POST` | `/api/v1/update/restart` | Ask the local daemon to re-exec the already replaced binary |
@@ -551,24 +552,28 @@ ptc cancel run-20260101T000000Z-test --json
 
 ### `ptc clean`
 
-Applies only to **local** storage paths. There is no `--node` remote delete (unless a future target turns on `policy.remote_clean`).
+Without `--node`, applies to **local** storage paths. With `--node <name-or-peer-id>`, the local daemon asks that peer to run the same class of cleanup over the mesh (`/ptc/clean/1.0.0`). The target must set `policy.remote_clean: true`; otherwise the request is refused. Older remotes or daemons that do not implement the protocol fail with a clear error. The WebUI stays read-only and has no Clean button.
 
 Subcommands: `outputs` (result packages), `runs` (finished run records), `resource` (delete a seed or result by digest), `worktrees` (leftover worktrees; never deletes CAS/packages).
 
 A running worktree is protected by a cross-process lock: preview marks it undeletable, and the lock is checked again before an actual delete. `--force` cannot bypass this protection, a persistent replica commitment, or active-input protection. The plan is rechecked before a resource is actually deleted. `.ptc-locks` under the worktree root is the persistent lock directory; do not delete it by hand. Jobs started by older versions do not hold these locks; wait for those jobs to finish before upgrading. A custom `layout.root` must be a strict subdirectory of the configured worktree root, and must not point at the root, the lock directory, or an external path.
 
+A seed or result that is unique on the network (this node holds the only known copy, measured by mesh `locations` / replica count) is refused unless `--force` is also passed. If the daemon cannot confirm replica counts, the resource is treated as unique. The same rule applies to local and remote clean.
+
 | Flag | Purpose |
 | --- | --- |
+| `--node` | Peer name or peer ID. Omitted: clean local storage. |
 | `<id…>` / `--match RE` | Filter by run id, name, job, or digest. |
 | `--dry-run` | List paths and bytes that would be deleted, without deleting. |
 | `--yes` | Required for an actual delete (so a non-interactive agent can be explicit). |
-| `--force` | Allow deleting a pinned object. A seed referenced by a queued or running job is still refused. |
+| `--force` | Allow deleting a pinned object or the only network copy of a resource. A seed referenced by a queued or running job is still refused. |
 | `--json` | Print JSON. |
 
 ```text
 ptc clean worktrees --dry-run
 ptc clean outputs --match 'fake-cuda' --yes
 ptc clean resource sha256:abc… --yes
+ptc clean --node gpu-1 resource sha256:abc… --yes --force
 ptc clean runs --match 'sample-local' --yes
 ```
 

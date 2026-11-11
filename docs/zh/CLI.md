@@ -421,7 +421,7 @@ YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不�
 | `storage.delete_size` | bytes 或单位字符串 | `20GB` | 每轮自动清理目标；省略时为配置上限的一半。 |
 | `storage.workspace_limit` | bytes 或单位字符串 | `0` | 所有 workspace 合计上限；0 不限制。 |
 | `exec.concurrency` | 整数 | `1` | 本节点同时执行的作业数；其余排队。 |
-| `policy.remote_clean` | 布尔 | `false` | 为预留开关；当前 `ptc clean` 只清理本机。 |
+| `policy.remote_clean` | 布尔 | `false` | 为 true 时，受信对端可通过 `ptc clean --node` 请求清理本节点。默认关闭。 |
 | `trusted_cidrs` | CIDR 列表 | **必填，至少一条** | 信任边界。网段外的连接一律拒绝。本机回环互连需要显式加上如 `127.0.0.0/8`。 |
 | `psk` | 64 个十六进制字符 | 空（不启用） | 可选，32 字节密钥，用于挡住网段外噪声。可带 `0x` 前缀。集群内必须相同。 |
 | `services.exec` | 布尔 | `true` | 是否打算提供执行。无 NVIDIA GPU 时目录仍会标为不可用。 |
@@ -460,6 +460,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | `GET` | `/api/v1/queue` | 网格内排队中 / 正在运行的作业 |
 | `POST` | `/api/v1/cancel` | `{"id":"<run-id 或 job-id>"}`，取消排队或运行中的作业 |
 | `POST` | `/api/v1/scan` | `{}` 触发本机，`{"node":"<relay 名称或 peer-id>"}` 请求已知 relay；202 已接受、409 忙、429 限频（含 `Retry-After`）、403 拒绝、404 节点不存在。 |
+| `POST` | `/api/v1/clean` | 本机或远程清理：`kind`，可选 `node`、`ids`、`match`、`dry_run`、`force`、`yes`。省略 `node` 时清理本机 daemon。200 成功、403 拒绝（含目标未打开 `policy.remote_clean`）、404 节点不存在。旧版 daemon 会返回 404，需要升级。 |
 | `POST` | `/api/v1/storage/ensure` | 本地 runner 的容量准入：`incoming` bytes、`seeds_dir`、`worktrees_dir`、可选 `reservation_id`；根目录不匹配、容量不足或不能安全清理返回 409。只保证当次检查，调用方还须持有磁盘 reservation。 |
 | `POST` | `/api/v1/update/mesh` | 滚动升级请求（`version`、`nodes`、`batch`、`assets_dir`、`dry_run`） |
 | `POST` | `/api/v1/update/restart` | 请求本机 daemon 用已替换的二进制重新 exec |
@@ -552,24 +553,28 @@ ptc cancel run-20260101T000000Z-test --json
 
 ### `ptc clean`
 
-只作用于**本机**存储路径。没有 `--node` 远程删除（除非将来目标打开 `policy.remote_clean`）。
+省略 `--node` 时只作用于**本机**存储路径。带 `--node <名称或 peer-id>` 时，由本机 daemon 通过网格协议（`/ptc/clean/1.0.0`）请该节点执行同类清理。目标必须打开 `policy.remote_clean: true`，否则请求会被拒绝。不支持该协议的旧版节点或 daemon 会给出明确错误。WebUI 保持只读，没有 Clean 按钮。
 
 子命令：`outputs`（结果包）、`runs`（已结束的运行记录）、`resource`（按 digest 删种子或结果）、`worktrees`（残留工作树，绝不删除 CAS/packages）。
 
 运行中的工作树由跨进程锁保护：预览会标记为不可删除，实际删除前也会重新检查；`--force` 不能绕过此保护，也不能绕过持久副本承诺或活跃输入保护。实际删除资源前会重查计划是否过期。工作树根目录的 `.ptc-locks` 是持久锁目录，不要手动删除。旧版本的运行任务不持有这些锁，升级前须等待旧任务结束。自定义 `layout.root` 必须是配置工作树根目录的严格子目录，不能指向根目录、锁目录或外部路径。
 
+网络上唯一的种子或结果（本节点持有唯一已知副本，按网格 `locations` / 副本数判断）默认拒绝删除，必须同时加 `--force`。若无法确认副本数，按唯一副本处理。本机清理与 `ptc clean --node` 都遵守这条规则。
+
 | 参数 | 作用 |
 | --- | --- |
+| `--node` | 节点名或 peer ID。省略时清理本机存储。 |
 | `<id…>` / `--match RE` | 按 run id、名称、job 或 digest 筛选。 |
 | `--dry-run` | 列出将删除的路径和字节，不删。 |
 | `--yes` | 实际删除时必须带上（方便非交互 agent）。 |
-| `--force` | 允许删除已 pin 的对象。被排队/运行中作业引用的种子仍会拒绝。 |
+| `--force` | 允许删除已 pin 的对象，或网络上仅剩的一份资源。被排队/运行中作业引用的种子仍会拒绝。 |
 | `--json` | 打印 JSON。 |
 
 ```text
 ptc clean worktrees --dry-run
 ptc clean outputs --match 'fake-cuda' --yes
 ptc clean resource sha256:abc… --yes
+ptc clean --node gpu-1 resource sha256:abc… --yes --force
 ptc clean runs --match 'sample-local' --yes
 ```
 
