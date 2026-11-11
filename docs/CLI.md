@@ -264,7 +264,9 @@ ptc resources get sha256:6c3ba3d27d3128f6e53872e87185dff8c27a6f1d34cca9ba305a9d5
 
 `--json` 适用于列表和 `show`。hop 次数是相对于当前这个 daemon 的，不是相对于查看 CLI 的那台电脑（若 CLI 连的是网关，就以网关为起点）。CLI / HTTP 仍是内容接口，节点之间优先使用标准 Boxo Bitswap 传输 256KiB 分块：`/ptc/resource-blocks/1.0.0` 仅发现传输 manifest 的 CID，payload 使用标准 Bitswap。旧节点不支持该发现协议时才回退原 tar/blob 协议，校验错误不会静默回退。按跳数依次尝试副本，接收完整并校验 sha256 / DirDigest 后再交付内容。
 
-输入仍是 PTC sha256 摘要，不支持直接使用 CID / dataset / UnixFS 输入。单资源传输最多 10,000 个 256KiB 分块，约 2.44GiB（目录 tar 开销也计入）；单块超时 20 秒、总超时 30 分钟。缓存位于种子盘 `blocks/`，下载与校验暂存位于 `.fetch/`，不构建工作树。尚无分块缓存 GC，`ptc clean resource` 不会回收该缓存；种子磁盘统计包含缓存和暂存。关闭 files 或更新名单后，资源发现与标准 Bitswap 的请求 / 发包都会重新检查策略。
+输入仍是 PTC sha256 摘要，不支持直接使用 CID / dataset / UnixFS 输入。单资源超过 10,000 个 256KiB 分块时自动切换为 v2 多层 Merkle 索引，每页最多 256 个引用；无需手动分卷，也不把整个资源或全部块引用放进内存。小资源仍生成 v1 manifest，新节点兼容读取 v1。旧 Bitswap 节点不支持 v2 大资源，提供者与接收者均须升级；格式或校验错误不会回退旧协议。资源大小使用 int64，实际仍受可用磁盘空间、单块 20 秒和总计 30 分钟超时限制，不代表已经实测 TB 级传输。目录的 tar 开销计入传输大小。
+
+缓存位于种子盘 `blocks/`，下载与校验暂存位于 `.fetch/`，不构建工作树。尚无分块缓存 GC，`ptc clean resource` 不会回收该缓存；种子磁盘统计包含缓存和暂存。关闭 files 或更新名单后，资源发现与标准 Bitswap 的请求 / 发包都会重新检查策略。
 
 ### `ptc tasks`
 

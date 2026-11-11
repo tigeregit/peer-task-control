@@ -23,6 +23,16 @@
 3. 描述里写：行为变化、如何验证、是否需要改 skill 或 example 配置。
 4. 协议或发现逻辑的变化，要同步 `docs/DESIGN.md`；若与设计 Page 冲突，先更新 Page 再合入。
 
+Bitswap 的默认测试覆盖索引分页、层级进位、异常索引和标准 Boxo 互通。修改大资源导出路径时，额外运行超过旧上限的 3GiB 流式测试，验证 SHA256 和源离线后的持久缓存重开读取：
+
+```powershell
+$env:PTC_TEST_LARGE_BITSWAP = "1"
+go test ./internal/bitswap -run TestLargeResourceExportAndFetch -count=1 -timeout 8m -v
+Remove-Item Env:\PTC_TEST_LARGE_BITSWAP
+```
+
+此测试使用重复数据降低磁盘占用，验证的是逻辑资源大小，并不声称传输了 3GiB 不可去重的网络数据。
+
 ## 发版
 
 1. 开发版号在 `internal/version/version.go`；Release 构建通过 `-ldflags -X github.com/tigeregit/peer-task-control/internal/version.Version=<标签去掉 v>` 写入准确版本。`SKILL.md` 和内嵌 `cmd/ptc/skill.txt` 必须一致，`ptc skill print` 追加实际绑定版本；不要让工作目录中的旧 skill 覆盖二进制内嵌 usage。
