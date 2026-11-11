@@ -15,7 +15,7 @@
 - **P2 网格下发**：`ptc submit --target` 把作业派到指定（或 `auto`）exec 节点，经 `/ptc/exec/1.0.0` 传输；目标按目录最短路径拉取已发布种子并校验摘要。exec 节点有持久 FIFO 队列（默认并发 1）。`ptc queue` / `ptc cancel` 仅 CLI。
 - **存储分离**：种子（`cas/` + `packages/`）与每轮工作树分目录、分生命周期；清工作树不会删种子。路径可在配置、环境变量和 `--seeds-dir` / `--worktrees-dir` / `--runs-dir` 里分开设置。`ptc clean` 在本机回收结果包、记录、种子或残留工作树。
 - **纯做种任务**：单独的 `ptc/seed@v0` action 获取并公开指定资源集合，不创建 workspace、不执行命令、不打结果包。可下发到只有 files 服务的节点以增加容灾副本；[完整 YAML 与用法](docs/PREPARE.md#纯做种任务)，[可直接运行的本地示例](testdata/seed/workflow.yaml)。
-- **Bitswap 数据面**：资源摘要发现仍走受信任 PTC 网格，数据按 256KiB 分块通过标准 Boxo Bitswap 交换，支持中转、校验、持久缓存与副本故障切换。大资源自动使用多层 Merkle 索引，不再受 10,000 块、约 2.44GiB 的固定上限约束；仍受磁盘空间和传输超时限制。小资源保留 v1 manifest；提供与接收大资源的节点均须升级以支持 v2 索引。
+- **Bitswap 数据面**：资源摘要发现仍走受信任 PTC 网格，数据按 256KiB 分块通过标准 Boxo Bitswap 交换，支持中转、校验、持久缓存与副本故障切换。大资源自动使用多层 Merkle 索引，不再受 10,000 块、约 2.44GiB 的固定上限约束；仍受磁盘空间、传输超时和中继连接配额限制。小资源保留 v1 manifest；提供与接收大资源的节点均须升级以支持 v2 索引。
 - **安装与更新**：`ptc install --ssh HOST`、`ptc update [--ssh HOST]` 从官方 Release 下载并校验二进制，替换失败回滚。SSH 支持 Linux amd64/arm64、Windows amd64，保持严格主机密钥校验；本机更新支持 Linux/macOS，Windows 可更新另一个未运行的 exe。[参数与平台限制](docs/CLI.md)。
 
 未完成：
