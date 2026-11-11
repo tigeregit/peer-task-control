@@ -41,11 +41,13 @@ func cleanSub(use, short string, kind clean.Kind) *cobra.Command {
 			if !dry && !yes {
 				return fmt.Errorf("refusing to delete without --yes (pass --dry-run to list); agents should pass --yes")
 			}
-			cfg := loadPaths()
+			cfg, err := loadPaths()
+			if err != nil {
+				return err
+			}
 			opt := clean.Options{IDs: args, Match: match, Force: force}
 			active := clean.ActiveDigests(cfg, nil)
 			var plans []clean.Plan
-			var err error
 			switch kind {
 			case clean.Outputs:
 				plans, err = clean.PlanOutputs(cfg, opt, active)

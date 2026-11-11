@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/tigeregit/peer-task-control/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/quota"
 	"github.com/tigeregit/peer-task-control/internal/resource"
 )
 
@@ -262,6 +264,8 @@ func (n *Node) OpenResource(ctx context.Context, digest string) (resource.Blob, 
 	if n.blocks != nil {
 		if _, err := n.PullSeed(ctx, digest, nil); err == nil {
 			return n.openLocal(digest)
+		} else if errors.Is(err, quota.ErrExceeded) {
+			return resource.Blob{}, err
 		} else {
 			n.Log.Warn("bitswap pull failed; falling back to a one-shot fetch", "digest", digest, "err", err)
 		}

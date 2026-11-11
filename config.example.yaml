@@ -53,6 +53,17 @@ scan_interval: 30s
 #   seeds_dir: ""        # 其下是 cas/ 和 packages/（种子与结果包）
 #   worktrees_dir: ""    # 每次运行物化出的工作树；清工作树不会删种子
 #   runs_dir: ""         # 运行记录和作业队列
+#   size_limit: 40GB     # packages（含输出）+ CAS + Bitswap blocks + .fetch 合计
+#   delete_size: 20GB    # 每轮自动清理目标；省略时为 size_limit 的一半
+#   workspace_limit: 0  # 全部 workspace 合计；0 表示不限制
+#
+# workspace 不得与上述实际做种目录相同或互相嵌套（解析符号链接后校验）。
+# 默认 data_dir 只是共同父目录，worktrees/ 与 cas/、packages/ 等仍然分离。
+# 完成、失败、取消的任务立即回收 workspace；输入和输出都作为普通种子保留。
+# free < size_limit 时：实际上限=max(0, free-1GB)，清理目标按原配置比例缩放。
+# 例如 40GB/20GB、free=11GB，则实际为 10GB/5GB。
+# 仅在对端完整校验并持久承诺保留另一份副本后才删除本机数据；
+# 无足够安全副本时会明确报错，不会删除唯一、pin 或活跃任务需要的数据。
 
 # 执行节点同时跑几个作业。默认 1，后来的作业排队。
 # exec:

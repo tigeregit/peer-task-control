@@ -28,7 +28,7 @@ func materializeDigest(name, digest, dest string, store *cas.Store, log *bytes.B
 	if dir := resource.FindPackageDirAt(opt.packagesDir(), d); dir != "" {
 		got, _, err := cas.DirDigest(dir)
 		if err == nil && got == d {
-			if err := copyTreeSkipManifest(dir, dest); err != nil {
+			if err := copyTreeSkipManifest(opt.Context, dir, dest); err != nil {
 				return err
 			}
 			fmt.Fprintf(log, "seed %s %s from this node's packages (verified) -> %s\n", name, d, dest)
@@ -38,7 +38,7 @@ func materializeDigest(name, digest, dest string, store *cas.Store, log *bytes.B
 	}
 	if store.Has(d) {
 		if sum, err := fileSHA256(store.Path(d)); err == nil && sum == d {
-			if err := store.Materialize(d, dest); err != nil {
+			if err := cas.CopyPrivateContext(opt.Context, store.Path(d), dest); err != nil {
 				return err
 			}
 			fmt.Fprintf(log, "seed %s %s from this node's CAS (verified) -> %s\n", name, d, dest)
@@ -74,7 +74,7 @@ func materializeDigest(name, digest, dest string, store *cas.Store, log *bytes.B
 			return fmt.Errorf("digest mismatch for %s: received tree hashes to %s", d, got)
 		}
 		_ = os.Remove(filepath.Join(stage, "manifest.json"))
-		if err := placeTree(stage, dest); err != nil {
+		if err := placeTree(ctx, stage, dest); err != nil {
 			return err
 		}
 		fmt.Fprintf(log, "seed %s %s fetched from the mesh: %d files, %d bytes in %s (DirDigest verified) -> %s\n", name, d, files, n, time.Since(t0).Round(time.Millisecond), dest)
@@ -102,7 +102,7 @@ func materializeDigest(name, digest, dest string, store *cas.Store, log *bytes.B
 	if _, err := store.PutFile(tmp); err != nil {
 		return err
 	}
-	if err := store.Materialize(d, dest); err != nil {
+	if err := cas.CopyPrivateContext(opt.Context, store.Path(d), dest); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "seed %s %s fetched from the mesh: %d bytes in %s (sha256 verified) -> %s\n", name, d, n, time.Since(t0).Round(time.Millisecond), dest)
@@ -111,7 +111,7 @@ func materializeDigest(name, digest, dest string, store *cas.Store, log *bytes.B
 
 // placeTree moves a verified staging tree to dest, or copies into an
 // existing non-empty dest.
-func placeTree(stage, dest string) error {
+func placeTree(ctx context.Context, stage, dest string) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -123,11 +123,11 @@ func placeTree(stage, dest string) error {
 			return nil
 		}
 	}
-	return cas.CopyTree(stage, dest)
+	return cas.CopyPrivateContext(ctx, stage, dest)
 }
 
-func copyTreeSkipManifest(src, dest string) error {
-	if err := cas.CopyTree(src, dest); err != nil {
+func copyTreeSkipManifest(ctx context.Context, src, dest string) error {
+	if err := cas.CopyPrivateContext(ctx, src, dest); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(src, "manifest.json")); err == nil {

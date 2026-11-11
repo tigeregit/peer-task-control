@@ -74,10 +74,14 @@ type Node struct {
 	blocks      *bitswap.Exchange
 	pulls       sync.Map // digest -> *sync.Mutex
 	upd         updateState
+	storage     storageState
 	lockWritten bool
 }
 
 func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node, error) {
+	if err := cfg.ValidateStorage(); err != nil {
+		return nil, err
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -146,6 +150,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	h.SetStreamHandler(ProtocolResources, n.handleResources)
 	h.SetStreamHandler(ProtocolResourceBlocks, n.handleResourceBlocks)
 	h.SetStreamHandler(ProtocolUpdate, n.handleUpdate)
+	h.SetStreamHandler(ProtocolRetention, n.handleRetention)
 	n.initUpdate()
 	if err := n.initExec(); err != nil {
 		cancel()
@@ -188,6 +193,8 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 	n.startRelayLoop()
 	go n.scanLoop()
 	go n.indexLocalCIDs()
+	n.storage.done = make(chan struct{})
+	go n.storageLoop()
 
 	n.Log.Info("ptc daemon started",
 		"name", cfg.Name,
@@ -203,6 +210,9 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 
 func (n *Node) Close() error {
 	n.cancel()
+	if n.storage.done != nil {
+		<-n.storage.done
+	}
 	if n.lockWritten {
 		if lock, err := control.ReadLock(n.Cfg.LockPath()); err == nil && lock.PID == os.Getpid() && lock.PeerID == n.Host.ID().String() {
 			control.RemoveLock(n.Cfg.LockPath())

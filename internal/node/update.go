@@ -26,7 +26,6 @@ import (
 	"github.com/tigeregit/peer-task-control/internal/catalog"
 	"github.com/tigeregit/peer-task-control/internal/control"
 	"github.com/tigeregit/peer-task-control/internal/deploy"
-	"github.com/tigeregit/peer-task-control/internal/resource"
 	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
@@ -250,8 +249,7 @@ func (n *Node) applyRemoteUpdate(from peer.ID, req updateMessage) updateMessage 
 	}
 	if !had {
 		defer func() {
-			_ = os.Remove(resource.CIDPath(pr.Path))
-			_ = os.Remove(pr.Path)
+			n.discardUpdateStage(pr.Path)
 		}()
 	}
 	if pr.Kind != "blob" {
@@ -386,8 +384,7 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 	var staged []string
 	defer func() {
 		for _, p := range staged {
-			_ = os.Remove(resource.CIDPath(p))
-			_ = os.Remove(p)
+			n.discardUpdateStage(p)
 		}
 	}()
 	store := cas.New(n.Cfg.CASDir())
@@ -420,6 +417,22 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 			}
 			bin = art.Data
 		}
+		sum := sha256.Sum256(bin)
+		digest := "sha256:" + hex.EncodeToString(sum[:])
+		pre := store.Has(digest)
+		budget := int64(0)
+		if !pre {
+			budget = 2*int64(len(bin)) + 1_048_576
+		}
+		_, release, err := n.reserveTransfer(ctx, digest, budget)
+		if err != nil {
+			return rep, err
+		}
+		defer func() {
+			if err := release(); err != nil {
+				n.Log.Error("release update staging reservation", "err", err)
+			}
+		}()
 		tmp := filepath.Join(n.Cfg.FetchTmpDir(), fmt.Sprintf("update-%s-%d", strings.ReplaceAll(key, "/", "-"), time.Now().UnixNano()))
 		if err := os.MkdirAll(filepath.Dir(tmp), 0o755); err != nil {
 			return rep, err
@@ -427,9 +440,6 @@ func (n *Node) MeshUpdate(ctx context.Context, req MeshUpdateRequest) (MeshUpdat
 		if err := os.WriteFile(tmp, bin, 0o644); err != nil {
 			return rep, err
 		}
-		sum := sha256.Sum256(bin)
-		digest := "sha256:" + hex.EncodeToString(sum[:])
-		pre := store.Has(digest)
 		d, err := store.PutFile(tmp)
 		_ = os.Remove(tmp)
 		if err != nil {

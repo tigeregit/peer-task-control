@@ -90,11 +90,14 @@ func (n *Node) execHost() dispatch.Host {
 
 func (n *Node) runOptions() run.Options {
 	return run.Options{
-		DataDir:      n.Cfg.DataDir,
-		SeedsDir:     n.Cfg.SeedsDir(),
-		WorktreesDir: n.Cfg.WorktreesDir(),
-		RunsDir:      n.Cfg.RunsDir(),
-		Fetch:        n.OpenResource,
+		DataDir:         n.Cfg.DataDir,
+		SeedsDir:        n.Cfg.SeedsDir(),
+		WorktreesDir:    n.Cfg.WorktreesDir(),
+		RunsDir:         n.Cfg.RunsDir(),
+		Fetch:           n.OpenResource,
+		Storage:         n.Cfg.Storage,
+		InspectResource: n.Resource,
+		EnsureSpace:     n.ensureSeedSpace,
 	}
 }
 

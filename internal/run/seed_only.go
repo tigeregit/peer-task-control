@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -20,8 +21,12 @@ func submitSeeds(loaded workflow.Loaded, start time.Time, opt Options) (Result, 
 	var log bytes.Buffer
 	var seedErr error
 	for _, seed := range loaded.Prepare.Seeds {
+		if opt.skipSeeds[seed.Name] {
+			fmt.Fprintf(&log, "optional seed %s skipped: metadata unavailable at admission\n", seed.Name)
+			continue
+		}
 		if err := opt.Context.Err(); err != nil {
-			seedErr = err
+			seedErr = context.Cause(opt.Context)
 			break
 		}
 		if err := retainSeed(loaded, seed, start, opt, &log); err != nil {
@@ -31,6 +36,10 @@ func submitSeeds(loaded workflow.Loaded, start time.Time, opt Options) (Result, 
 				break
 			}
 		}
+	}
+	seedErr = errors.Join(seedErr, context.Cause(opt.Context))
+	if seedErr == nil {
+		seedErr = opt.checkStorage()
 	}
 	end := opt.Now()
 	status := "success"
@@ -48,6 +57,16 @@ func submitSeeds(loaded workflow.Loaded, start time.Time, opt Options) (Result, 
 	var err error
 	res.TaskPath, err = writeTaskIfNeeded(opt.runsDir(), rec, opt.DeferRecord)
 	return res, errors.Join(seedErr, err)
+}
+
+func failedSeedAdmission(loaded workflow.Loaded, start time.Time, opt Options, admissionErr error) (Result, error) {
+	host, _ := os.Hostname()
+	end := opt.Now()
+	step := taskboard.Step{ID: "seed", Status: "failure", Log: admissionErr.Error()}
+	job := taskboard.Job{ID: loaded.JobName, Status: "failure", Steps: []taskboard.Step{step}}
+	rec := finishTask(loaded, host, start, end, "failure", admissionErr.Error(), "", job, nil, opt.Dispatch, opt.RunID)
+	path, err := writeTaskIfNeeded(opt.runsDir(), rec, opt.DeferRecord)
+	return Result{ID: opt.RunID, Status: "failure", Task: rec, TaskPath: path}, errors.Join(admissionErr, err)
 }
 
 func retainSeed(loaded workflow.Loaded, seed workflow.Seed, start time.Time, opt Options, log *bytes.Buffer) error {

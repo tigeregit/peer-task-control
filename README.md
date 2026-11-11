@@ -85,6 +85,8 @@ docker compose -f docker/docker-compose.yml down -v
 
 ## 命令
 
+全局做种限额默认 **40GB**，自动清理目标 **20GB**，可配置 `storage.size_limit/delete_size`；输出与其他种子共用限额，只在另一节点持久承诺保留完整副本后清理，不能删除唯一副本。`storage.workspace_limit` 限制节点全部工作区合计，默认不限制；工作区与做种数据隔离，任务成功、失败、取消后立即回收。详见 [全局存储规则](docs/CLI.md#全局存储规则)。
+
 完整参数、默认值、输出格式和本机 API 见 [docs/CLI.md](docs/CLI.md)。P0 测试报告见 [docs/TEST-REPORT-P0.md](docs/TEST-REPORT-P0.md)。
 
 

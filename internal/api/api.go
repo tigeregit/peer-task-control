@@ -13,6 +13,7 @@ import (
 	"github.com/tigeregit/peer-task-control/internal/dispatch"
 	"github.com/tigeregit/peer-task-control/internal/policy"
 	"github.com/tigeregit/peer-task-control/internal/query"
+	"github.com/tigeregit/peer-task-control/internal/quota"
 	"github.com/tigeregit/peer-task-control/internal/resource"
 	"github.com/tigeregit/peer-task-control/internal/taskboard"
 	"github.com/tigeregit/peer-task-control/internal/version"
@@ -62,9 +63,35 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/exec", s.exec)
 	mux.HandleFunc("GET /api/v1/queue", s.queue)
 	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
+	mux.HandleFunc("POST /api/v1/storage/ensure", s.storageEnsure)
 	mux.HandleFunc("POST /api/v1/update/mesh", s.meshUpdate)
 	mux.HandleFunc("POST /api/v1/update/restart", s.restart)
 	return mux
+}
+
+func (s *Server) storageEnsure(w http.ResponseWriter, r *http.Request) {
+	var req control.StorageRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&req); err != nil || req.Incoming < 0 {
+		http.Error(w, "invalid storage admission", http.StatusBadRequest)
+		return
+	}
+	node, ok := s.Node.(interface {
+		EnsureSeedSpace(context.Context, int64) error
+		ValidateStorageRoots(string, string) error
+	})
+	if !ok {
+		http.Error(w, "storage admission is unavailable", http.StatusNotImplemented)
+		return
+	}
+	if err := node.ValidateStorageRoots(req.SeedsDir, req.WorktreesDir); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	if err := node.EnsureSeedSpace(quota.WithReservation(r.Context(), req.ReservationID), req.Incoming); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -207,7 +234,7 @@ func (s *Server) resourcePull(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) resourceContent(w http.ResponseWriter, r *http.Request) {
 	digest := "sha256:" + r.PathValue("hex")
-	blob, err := s.Node.OpenResource(r.Context(), digest)
+	blob, err := s.Node.OpenResource(quota.WithReservation(r.Context(), r.Header.Get("X-PTC-Reservation")), digest)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return

@@ -48,10 +48,31 @@ ptc <命令> --help
 | `identity.key` | 节点 libp2p 身份密钥，首次启动生成（仍在 `data_dir`）。 |
 | `daemon.lock` | daemon 启动时写入，正常退出时删除。含 `pid`、`api`、`peer_id`、`name`。 |
 | `cas/`、`packages/` | 种子与结果包（在 `seeds_dir` 下）。与工作树分离；删除工作树不会删除这里的数据。 |
-| `blocks/` | `seeds_dir` 下持久化的 Bitswap raw SHA256 分块缓存，计入种子磁盘用量；尚无缓存 GC。 |
-| `worktrees/` | 每次运行物化出的工作空间。成功后按 Package result 清理；也可用 `ptc clean worktrees`。 |
+| `blocks/` | `seeds_dir` 下持久化的 Bitswap raw SHA256 分块缓存，计入统一做种限额；安全清种时按保留资源的引用回收无用块。 |
+| `worktrees/` | 每次运行物化出的私有工作空间；成功、失败、取消后立即回收。也可用 `ptc clean worktrees` 清理旧目录。 |
 | `.fetch/` | 种子存储中的下载 / bundle 暂存，不在工作树盘；纯做种任务也可使用。 |
 | `runs/` | 运行记录 JSON 与 `runs/queue/` 中的持久作业队列。 |
+
+### 全局存储规则
+
+```yaml
+storage:
+  size_limit: 40GB
+  delete_size: 20GB
+  workspace_limit: 0
+```
+
+`size_limit` 统计 `packages/`（包括 output）、CAS、Bitswap blocks 和 `.fetch/` 的文件字节合计；不是仅统计输入，也不按 output、permanent、temporary 分类豁免。重复存储及硬链接路径按各路径的逻辑大小计量。`GB` 为十进制，也接受 `GiB` 或整数 bytes。省略 `delete_size` 时取上限的一半；要求 `0 < delete_size <= size_limit`。`workspace_limit` 是节点**全部 workspace 合计**，默认 0，不限制。
+
+若做种盘的 free 小于配置上限，实际上限为 `max(0, free - 1GB)`，清理目标为 `delete_size / size_limit * 实际上限`。例如 40GB/20GB、free=11GB，实际为 10GB/5GB。达到上限（或新输入预留空间无法容纳）时，daemon 尝试至少释放该清理目标；没有足够可安全删除的数据时明确报错，不能为了达标删除唯一副本。
+
+删除前必须让另一个支持 `/ptc/retention/1.0.0` 的 files 节点完整校验副本，并把保留承诺持久化后回复确认。双方同时清理、断网或 ACK 丢失都不能授权删除最后一份；协商冲突时保守保留，后台带抖动重试。承诺不依赖 TTL；发起方重启后重试释放未完成事务。不要手动删除 `.retention/`、`.retention-lock/`、`.reservations/`、`.quota-lock/`。旧协议节点不能作为安全删除的 keeper；升级须覆盖 daemon 和本机 CLI，不能用旧 CLI 绕过保护。
+
+`pin`、活跃任务输入及正在写的结果受保护；已完成的 output 与其他普通种子使用同样的自动清理规则。块索引缺失或损坏时保守保留缓存并记录原因。Prepare 在下载前检查全部输入大小及并发预留，输入本身超限直接将 job 标为 failure，不进入下载/清除循环；还会为块缓存、暂存及元数据预留额外空间。纯做种、独立 `resources pull` 和结果发布同样受限。没有 daemon 的本地任务不能协商网络清理，空间不足时直接报错。
+
+workspace 必须与实际做种、下载、记录和协调元数据目录分离，不得相同或互相嵌套；符号链接别名也会校验。默认仍可共同位于 `data_dir`，其中 `worktrees/` 与 `cas/`、`packages/` 等是兄弟目录。自定义 `layout.root` 必须严格位于配置的 workspace 根目录下。任务的成功、失败、取消及 Prepare 失败都会在释放执行 slot 前回收 workspace；启动时也会回收终态记录指向的旧 workspace，不删除目录外路径或仍被锁定的工作区。工作区与种子使用私有文件副本，工作区写入不改变做种数据。
+
+运行时 workspace 每约 250ms 检查一次，做种空间每约 1s 检查一次，并在步骤边界复查；超限取消进程树并将 job 标为 failure。监控中的网络清理请求带 3 秒期限，网络协商及文件系统遍历可能延长检查间隔。这是应用层配额，不是文件系统硬配额，写入可能在检查间隔内短暂超过阈值。唯一或受保护资源仍保留并报告容量不足。`--keep-worktree` 对执行任务报错；旧 YAML 的 `cleanup.when/evict_worktree` 不再允许保留终态 workspace。运行记录和队列历史不在本规则中自动删除。
 
 ## 退出码
 
@@ -252,7 +273,7 @@ Docker 跨网段模拟会把该看板映射到主机的 `http://127.0.0.1:18790`
 
 ### `ptc resources`
 
-列出全网内容种子、查看某个种子、下载内容，或把副本拉取并保存在本机仓库。与 WebUI 资源分栏共用 `GET /api/v1/resources`（daemon 会向邻居拉取 `/ptc/resources/1.0.0`，并计算从当前节点到各副本的中转次数：直连为 0，经过一层电路中继为 1）。需要 daemon 已在运行。Prepare 步骤会把依赖种子登记为 `packages/seed-<name>` 树（优先硬链接，不另占一份完整拷贝），因此输入数据会和结果种子一起出现在清单里。
+列出全网内容种子、查看某个种子、下载内容，或把副本拉取并保存在本机仓库。与 WebUI 资源分栏共用 `GET /api/v1/resources`（daemon 会向邻居拉取 `/ptc/resources/1.0.0`，并计算从当前节点到各副本的中转次数：直连为 0，经过一层电路中继为 1）。需要 daemon 已在运行。Prepare 步骤会把依赖种子登记到 packages 或 CAS，因此输入数据会和结果种子一起出现在清单里；workspace 使用独立副本，修改和回收工作区不会污染做种数据。
 
 不带子命令时等同于 `ptc resources` 列表。
 
@@ -293,7 +314,7 @@ pull 的块数、字节数和 MiB/s 是逻辑取块统计，包含索引、缓�
 
 输入仍是 PTC sha256 摘要，不支持直接使用 CID / dataset / UnixFS 输入。单资源超过 10,000 个 256KiB 分块时自动切换为 v2 多层 Merkle 索引，每页最多 256 个引用；无需手动分卷，也不把整个资源或全部块引用放进内存。小资源仍生成 v1 manifest，新节点兼容读取 v1。旧 Bitswap 节点不支持 v2 大资源，提供者与接收者均须升级；格式或校验错误不会回退旧协议。资源大小使用 int64，实际仍受可用磁盘空间、单块 20 秒和总计 30 分钟超时限制。每条中继连接在任一方向累计 64 GiB 或持续 30 分钟后会被重置；超大或慢速传输不保证在重置后无缝继续。以上不代表已经实测 TB 级传输。目录的 tar 开销计入传输大小。
 
-缓存位于种子盘 `blocks/`，下载与校验暂存位于 `.fetch/`，不构建工作树。尚无分块缓存 GC，`ptc clean resource` 不会回收该缓存；种子磁盘统计包含缓存和暂存。关闭 files 或更新名单后，资源发现与标准 Bitswap 的请求 / 发包都会重新检查策略。
+缓存位于种子盘 `blocks/`，下载与校验暂存位于 `.fetch/`，不构建工作树。自动清种后按所有保留资源的 v1/v2 索引标记并回收未引用块，共享块保留；索引缺失或损坏时中止该轮块回收并记录原因。单独执行 `ptc clean resource` 不会立即回收块缓存；种子磁盘统计包含缓存和暂存。关闭 files 或更新名单后，资源发现与标准 Bitswap 的请求 / 发包都会重新检查策略。
 
 ### `ptc tasks`
 
@@ -373,6 +394,9 @@ YAML。复制 `config.example.yaml` 后填写至少一条 `trusted_cidrs`。不�
 | `storage.seeds_dir` | 路径 | `data_dir` | `cas/` 与 `packages/` 的父目录。 |
 | `storage.worktrees_dir` | 路径 | `data_dir/worktrees` | 工作树根目录。 |
 | `storage.runs_dir` | 路径 | `data_dir/runs` | 运行记录与队列。 |
+| `storage.size_limit` | bytes 或单位字符串 | `40GB` | 输入、输出、CAS、块缓存及下载暂存共用的做种上限，按磁盘 free 动态缩减。 |
+| `storage.delete_size` | bytes 或单位字符串 | `20GB` | 每轮自动清理目标；省略时为配置上限的一半。 |
+| `storage.workspace_limit` | bytes 或单位字符串 | `0` | 所有 workspace 合计上限；0 不限制。 |
 | `exec.concurrency` | 整数 | `1` | 本节点同时执行的作业数；其余排队。 |
 | `policy.remote_clean` | 布尔 | `false` | 为预留开关；当前 `ptc clean` 只清理本机。 |
 | `trusted_cidrs` | CIDR 列表 | **必填，至少一条** | 信任边界。网段外的连接一律拒绝。本机回环互连需要显式加上如 `127.0.0.0/8`。 |
@@ -411,6 +435,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 | `POST` | `/api/v1/exec?target=<name>&follow=1` | 本机 daemon 把请求体中的 bundle 下发到目标；follow 时返回 NDJSON 事件 |
 | `GET` | `/api/v1/queue` | 网格内排队中 / 正在运行的作业 |
 | `POST` | `/api/v1/cancel` | `{"id":"<run-id 或 job-id>"}`，取消排队或运行中的作业 |
+| `POST` | `/api/v1/storage/ensure` | 本地 runner 的容量准入：`incoming` bytes、`seeds_dir`、`worktrees_dir`、可选 `reservation_id`；根目录不匹配、容量不足或不能安全清理返回 409。只保证当次检查，调用方还须持有磁盘 reservation。 |
 | `POST` | `/api/v1/update/mesh` | 滚动升级请求（`version`、`nodes`、`batch`、`assets_dir`、`dry_run`） |
 | `POST` | `/api/v1/update/restart` | 请求本机 daemon 用已替换的二进制重新 exec |
 
@@ -442,7 +467,7 @@ CLI 通过 HTTP 调用 daemon 的 loopback API（默认 `http://127.0.0.1:18780`
 ```text
 ptc submit --workflow testdata/submit/workflow.yaml --dry-run
 ptc submit --workflow testdata/submit/workflow.yaml --data-dir /path/to/ptc-data
-ptc submit --workflow testdata/submit/workflow.yaml --job test --force --keep-worktree
+ptc submit --workflow testdata/submit/workflow.yaml --job test --force
 ptc submit --workflow testdata/cuda-e2e/workflow.windows.yaml --target host --fetch-result D:\ptc\results
 ptc submit --workflow testdata/submit/workflow.yaml --target auto --json
 ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda
@@ -458,10 +483,10 @@ ptc submit --workflow testdata/cuda-vectoradd/workflow.yaml --target cuda
 | `--inline-max` | 8388608 | 打进 bundle 的本地种子大小上限（字节）；`-1` 表示全部改为发布后按摘要拉取。 |
 | `--dry-run` | false | 只解析和校验，不执行、不下发。 |
 | `--force` | false | 仅本机执行：跳过 NVIDIA / exec 检查。 |
-| `--keep-worktree` | false | 仅本机执行：忽略 Package result 中的清理设置，保留工作树。 |
+| `--keep-worktree` | false | 执行任务不再支持；传入会报错，所有终态 workspace 都立即回收。 |
 | `--json` | false | 打印 JSON，供 agent 使用。 |
 
-成功后会在**执行节点**的 `runs/` 写入记录（含工作树快照与提交者），在其 `packages/` 发布结果种子。工作树在成功且未 `--keep-worktree` 时按清理规则删除，种子保留。超过 100 个文件的目录树种子按整个目录计算一个 digest。
+运行记录（含工作树快照与提交者）写入**执行节点**的 `runs/`，结果作为普通种子发布到其 `packages/`。所有终态工作树立即删除；种子受统一容量和安全副本清理规则管理。超过 100 个文件的目录树种子按整个目录计算一个 digest。
 
 #### 纯做种（不创建 workspace、不执行）
 
@@ -504,7 +529,7 @@ ptc cancel run-20260101T000000Z-test --json
 
 子命令：`outputs`（结果包）、`runs`（已结束的运行记录）、`resource`（按 digest 删种子或结果）、`worktrees`（残留工作树，绝不删除 CAS/packages）。
 
-运行中的工作树由跨进程锁保护：预览会标记为不可删除，实际删除前也会重新检查；`--force` 不能绕过此保护。工作树根目录的 `.ptc-locks` 是持久锁目录，不要手动删除。旧版本的运行任务不持有这些锁，升级后执行清理前须等待旧任务结束。若自定义 `layout.root` 是工作树根目录或其祖先，不能同时启用工作树自动删除，须改用其他目录或保留工作树。
+运行中的工作树由跨进程锁保护：预览会标记为不可删除，实际删除前也会重新检查；`--force` 不能绕过此保护，也不能绕过持久副本承诺或活跃输入保护。实际删除资源前会重查计划是否过期。工作树根目录的 `.ptc-locks` 是持久锁目录，不要手动删除。旧版本的运行任务不持有这些锁，升级前须等待旧任务结束。自定义 `layout.root` 必须是配置工作树根目录的严格子目录，不能指向根目录、锁目录或外部路径。
 
 | 参数 | 作用 |
 | --- | --- |

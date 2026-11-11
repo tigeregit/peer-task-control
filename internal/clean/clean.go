@@ -10,7 +10,9 @@ import (
 
 	"github.com/tigeregit/peer-task-control/internal/config"
 	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/quota"
 	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/retention"
 	"github.com/tigeregit/peer-task-control/internal/taskboard"
 	"github.com/tigeregit/peer-task-control/internal/worktreeguard"
 )
@@ -26,14 +28,15 @@ const (
 
 // Plan is one item that would be deleted.
 type Plan struct {
-	Kind    Kind   `json:"kind"`
-	Path    string `json:"path"`
-	ID      string `json:"id,omitempty"` // run id or digest
-	Name    string `json:"name,omitempty"`
-	Bytes   int64  `json:"bytes"`
-	Pinned  bool   `json:"pinned,omitempty"`
-	Reason  string `json:"reason,omitempty"` // why it would be kept
-	Allowed bool   `json:"allowed"`
+	SeedsDir string `json:"-"`
+	Kind     Kind   `json:"kind"`
+	Path     string `json:"path"`
+	ID       string `json:"id,omitempty"` // run id or digest
+	Name     string `json:"name,omitempty"`
+	Bytes    int64  `json:"bytes"`
+	Pinned   bool   `json:"pinned,omitempty"`
+	Reason   string `json:"reason,omitempty"` // why it would be kept
+	Allowed  bool   `json:"allowed"`
 }
 
 type Options struct {
@@ -189,7 +192,7 @@ func PlanOutputs(cfg *config.Config, opt Options, active map[string][]string) ([
 		if !matches(re, opt.IDs, hay, first(s.Digest, filepath.Base(dir))) {
 			continue
 		}
-		p := Plan{Kind: Outputs, Path: dir, ID: s.Digest, Name: s.Name, Bytes: dirSize(dir), Pinned: s.Pin, Allowed: true}
+		p := Plan{SeedsDir: cfg.SeedsDir(), Kind: Outputs, Path: dir, ID: s.Digest, Name: s.Name, Bytes: dirSize(dir), Pinned: s.Pin, Allowed: true}
 		if reason := blocked(p, opt.Force, active); reason != "" {
 			p.Allowed, p.Reason = false, reason
 		}
@@ -242,7 +245,7 @@ func PlanResources(cfg *config.Config, opt Options, active map[string][]string) 
 		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
 			n = fi.Size()
 		}
-		p := Plan{Kind: Resources, Path: path, ID: s.Digest, Name: seed.Name, Bytes: n, Pinned: seed.Pin, Allowed: true}
+		p := Plan{SeedsDir: cfg.SeedsDir(), Kind: Resources, Path: path, ID: s.Digest, Name: seed.Name, Bytes: n, Pinned: seed.Pin, Allowed: true}
 		if reason := blocked(p, opt.Force, active); reason != "" {
 			p.Allowed, p.Reason = false, reason
 		}
@@ -288,6 +291,35 @@ func PlanWorktrees(cfg *config.Config, opt Options) ([]Plan, error) {
 }
 
 func blocked(p Plan, force bool, active map[string][]string) string {
+	if p.SeedsDir != "" {
+		held, err := retention.Held(p.SeedsDir, p.ID)
+		if err != nil {
+			return "retention metadata could not be read: " + err.Error()
+		}
+		if held {
+			return "retained for another node (cannot override with --force)"
+		}
+		reservations, err := quota.Active(p.SeedsDir)
+		if err != nil {
+			return "active reservations could not be read: " + err.Error()
+		}
+		for _, reservation := range reservations {
+			for _, digest := range reservation.Digests {
+				if digest == p.ID {
+					return "used by active job " + reservation.ID
+				}
+			}
+			if reservation.Package != "" {
+				same, err := worktreeguard.Same(reservation.Package, p.Path)
+				if err != nil {
+					return "package path could not be resolved: " + err.Error()
+				}
+				if same {
+					return "package is being written by active job " + reservation.ID
+				}
+			}
+		}
+	}
 	if p.Pinned && !force {
 		return "pinned (pass --force to delete)"
 	}
@@ -320,13 +352,65 @@ func Apply(plans []Plan) (freed int64, err error) {
 			freed += p.Bytes
 			continue
 		}
+		if p.Kind == Resources || p.Kind == Outputs {
+			root := p.SeedsDir
+			if root == "" {
+				return freed, fmt.Errorf("resource cleanup plan has no seed store")
+			}
+			guard, lockErr := retention.Lock(root)
+			if lockErr != nil {
+				return freed, lockErr
+			}
+			removeErr := func() error {
+				_, current, seed, exists := resource.FindByDigest(filepath.Join(root, "packages"), filepath.Join(root, "cas"), p.ID)
+				same, err := worktreeguard.Same(current, p.Path)
+				if err != nil {
+					return err
+				}
+				if !exists || !same || (seed.Pin && !p.Pinned) {
+					return fmt.Errorf("resource cleanup plan is stale for %s", p.Path)
+				}
+				held, err := retention.Held(root, p.ID)
+				if err != nil {
+					return err
+				}
+				if held {
+					return fmt.Errorf("resource %s is retained for another node", p.ID)
+				}
+				active, err := quota.Active(root)
+				if err != nil {
+					return err
+				}
+				for _, r := range active {
+					for _, digest := range r.Digests {
+						if digest == p.ID {
+							return fmt.Errorf("resource %s is used by active job %s", p.ID, r.ID)
+						}
+					}
+					if r.Package != "" {
+						same, err := worktreeguard.Same(r.Package, p.Path)
+						if err != nil {
+							return err
+						}
+						if same {
+							return fmt.Errorf("package is being written by active job %s", r.ID)
+						}
+					}
+				}
+				if err := os.RemoveAll(p.Path); err != nil {
+					return err
+				}
+				return resource.SetCID(p.Path, "")
+			}()
+			closeErr := guard.Close()
+			if removeErr != nil || closeErr != nil {
+				return freed, errors.Join(removeErr, closeErr)
+			}
+			freed += p.Bytes
+			continue
+		}
 		if err := os.RemoveAll(p.Path); err != nil {
 			return freed, err
-		}
-		if p.Kind == Resources || p.Kind == Outputs {
-			if err := resource.SetCID(p.Path, ""); err != nil {
-				return freed, err
-			}
 		}
 		freed += p.Bytes
 	}

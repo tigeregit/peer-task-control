@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,7 +18,9 @@ import (
 
 	"github.com/tigeregit/peer-task-control/internal/bitswap"
 	"github.com/tigeregit/peer-task-control/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/quota"
 	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/retention"
 )
 
 // PullProvider is one holder's share of a bitswap pull.
@@ -44,7 +47,7 @@ type PullResult struct {
 // PullSeed fetches a seed from mesh holders with bitswap, verifies its
 // digest, and stores it as a temporary replica (packages/replica-* or cas/)
 // so this node can serve it too. A replica can be removed with `ptc clean resource`.
-func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (PullResult, error) {
+func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (res PullResult, retErr error) {
 	if log == nil {
 		log = io.Discard
 	}
@@ -52,9 +55,26 @@ func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (Pull
 		ctx = n.ctx
 	}
 	digest = resource.Normalize(digest)
-	res := PullResult{Digest: digest}
+	res = PullResult{Digest: digest}
 	if digest == "" {
 		return res, fmt.Errorf("invalid digest")
+	}
+	if id := quota.ReservationID(ctx); id != "" {
+		active, err := quota.Active(n.Cfg.SeedsDir())
+		if err != nil {
+			return res, fmt.Errorf("%w: %v", quota.ErrExceeded, err)
+		}
+		allowed := false
+		for _, reservation := range active {
+			if reservation.ID == id {
+				for _, input := range reservation.Digests {
+					allowed = allowed || input == digest
+				}
+			}
+		}
+		if !allowed {
+			return res, fmt.Errorf("%w: input has no active reservation", quota.ErrExceeded)
+		}
 	}
 	if kind, path, s, ok := resource.FindByDigest(n.Cfg.PackagesDir(), n.Cfg.CASDir(), digest); ok {
 		res.Kind, res.Path, res.Name, res.CID, res.AlreadyHad = kind, path, s.Name, s.CID, true
@@ -77,6 +97,21 @@ func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (Pull
 	if err != nil {
 		return res, err
 	}
+	if quota.ReservationID(ctx) == "" {
+		limit, _, err := n.storageLimits()
+		if err == nil && (info.Size < 0 || info.Size >= limit || info.Size > (limit-1_048_576)/3) {
+			err = fmt.Errorf("resource needs %d bytes plus block cache/staging, effective limit %d; refusing before download", info.Size, limit)
+		}
+		if err != nil {
+			return res, fmt.Errorf("%w: %v", quota.ErrExceeded, err)
+		}
+		next, release, err := n.reserveTransfer(ctx, digest, info.Size*3+1_048_576)
+		if err != nil {
+			return res, err
+		}
+		defer func() { retErr = errors.Join(retErr, release()) }()
+		ctx = next
+	}
 	res.Name, res.Kind = info.Name, info.Kind
 	locs := append([]resource.Location(nil), info.Locations...)
 	sort.SliceStable(locs, func(i, j int) bool {
@@ -93,6 +128,9 @@ func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (Pull
 		fmt.Fprintf(log, "bitswap: fetching %s from %s\n", digest, holder)
 		blob, root, st, err := n.fetchBlocksDetailed(ctx, loc.PeerID, digest)
 		if err != nil {
+			if errors.Is(err, quota.ErrExceeded) {
+				return res, err
+			}
 			last = err
 			n.Log.Info("bitswap holder failed", "peer", holder, "digest", digest, "err", err)
 			if ctx.Err() != nil {
@@ -106,7 +144,7 @@ func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (Pull
 		}
 		res.Providers = []PullProvider{{Peer: holder, Blocks: st.Blocks, Bytes: st.Bytes}}
 		res.Fetch.Providers = []bitswap.PeerBytes{{Peer: holder, Blocks: st.Blocks, Bytes: st.Bytes}}
-		path, err := n.commitReplica(blob, info, root)
+		path, err := n.commitReplica(ctx, blob, info, root)
 		_ = blob.Body.Close()
 		if err != nil {
 			return res, err
@@ -129,7 +167,19 @@ func (n *Node) PullSeed(ctx context.Context, digest string, log io.Writer) (Pull
 	return res, fmt.Errorf("seed %s has no reachable holder", digest)
 }
 
-func (n *Node) commitReplica(blob resource.Blob, info resource.Info, root string) (string, error) {
+func (n *Node) commitReplica(ctx context.Context, blob resource.Blob, info resource.Info, root string) (string, error) {
+	guard, err := retention.Acquire(ctx, n.Cfg.SeedsDir())
+	if err != nil {
+		return "", err
+	}
+	defer guard.Close()
+	if _, path, _, ok := resource.FindByDigest(n.Cfg.PackagesDir(), n.Cfg.CASDir(), info.Digest); ok {
+		return path, nil
+	}
+	held, err := retention.Held(n.Cfg.SeedsDir(), info.Digest)
+	if err != nil || held {
+		return "", fmt.Errorf("cannot replace retained replica %s: %v", info.Digest, err)
+	}
 	if err := os.MkdirAll(n.Cfg.FetchTmpDir(), 0o755); err != nil {
 		return "", err
 	}
@@ -307,8 +357,20 @@ func (n *Node) fetchBlocksDetailed(ctx context.Context, id, digest string) (reso
 			_ = os.Remove(f.Name())
 		}
 	}()
-	m, st, err := n.blocks.FetchWithStats(ctx, root, digest, f)
+	limit, _, err := n.storageLimits()
 	if err != nil {
+		return resource.Blob{}, "", st, err
+	}
+	used, err := quota.SeedUsage(n.Cfg.SeedsDir())
+	if err != nil {
+		return resource.Blob{}, "", st, err
+	}
+	maxTransport := max(0, (limit-used)/3)
+	m, st, err := n.blocks.FetchLimited(ctx, root, digest, f, maxTransport)
+	if err != nil {
+		if errors.Is(err, bitswap.ErrSizeLimit) {
+			return resource.Blob{}, "", st, fmt.Errorf("%w: %v", quota.ErrExceeded, err)
+		}
 		return resource.Blob{}, "", st, fmt.Errorf("bitswap fetch: %w", err)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {

@@ -196,7 +196,7 @@ func TestCleanRejectsRunningLocalSubmit(t *testing.T) {
 	out := &blockingOutput{ready: make(chan struct{}), release: make(chan struct{})}
 	result := make(chan error, 1)
 	go func() {
-		_, err := run.Submit(loaded, run.Options{DataDir: cfg.DataDir, Force: true, KeepWorktree: true, Stdout: out})
+		_, err := run.Submit(loaded, run.Options{DataDir: cfg.DataDir, Force: true, Stdout: out})
 		result <- err
 	}()
 	released := false
@@ -226,5 +226,8 @@ func TestCleanRejectsRunningLocalSubmit(t *testing.T) {
 	released = true
 	if err := <-result; err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(plans[0].Path); !os.IsNotExist(err) {
+		t.Fatalf("terminal job workspace was not reclaimed: %v", err)
 	}
 }

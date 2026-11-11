@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/tigeregit/peer-task-control/internal/cas"
 	"github.com/tigeregit/peer-task-control/internal/catalog"
 	"github.com/tigeregit/peer-task-control/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/control"
 	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/quota"
 	"github.com/tigeregit/peer-task-control/internal/resource"
 	"github.com/tigeregit/peer-task-control/internal/run"
 	"github.com/tigeregit/peer-task-control/internal/workflow"
@@ -68,7 +70,10 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 				}
 				return nil
 			}
-			cfg := loadPaths()
+			cfg, err := loadPaths()
+			if err != nil {
+				return err
+			}
 			if target != "" {
 				return submitRemote(cmd, loaded, cfg, target, detach, jsonOut, inlineMax, fetchDir)
 			}
@@ -79,7 +84,25 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 			if jsonOut {
 				logs = cmd.ErrOrStderr()
 			}
+			var ensure func(context.Context, int64) error
+			if cli, clientErr := controlClient(); clientErr == nil {
+				ensure = storageAdmission(cli, cfg)
+			} else if !errors.Is(clientErr, os.ErrNotExist) {
+				return clientErr
+			}
 			res, err := run.Submit(loaded, run.Options{
+				Storage:     cfg.Storage,
+				EnsureSpace: ensure,
+				InspectResource: func(ctx context.Context, digest string) (resource.Info, error) {
+					cli, err := controlClient()
+					if err != nil {
+						return resource.Info{}, err
+					}
+					if err := ctx.Err(); err != nil {
+						return resource.Info{}, err
+					}
+					return cli.Resource(digest)
+				},
 				DataDir:      cfg.DataDir,
 				SeedsDir:     cfg.SeedsDir(),
 				WorktreesDir: cfg.WorktreesDir(),
@@ -96,7 +119,7 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 					if err := ctx.Err(); err != nil {
 						return resource.Blob{}, err
 					}
-					return cli.ResourceContent(digest)
+					return cli.ResourceContentContext(ctx, digest, quota.ReservationID(ctx))
 				},
 			})
 			if jsonOut {
@@ -121,21 +144,29 @@ The WebUI stays read-only; only this CLI submits, cancels, or cleans.`,
 	cmd.Flags().Int64Var(&inlineMax, "inline-max", dispatch.DefaultInlineMax, "largest local seed (bytes) to ship in the bundle; larger seeds are published and pulled by digest; -1 means never inline")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "parse and validate only, do not execute or dispatch")
 	cmd.Flags().BoolVar(&force, "force", false, "skip the local NVIDIA/exec check (local submit only)")
-	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "do not delete the worktree after Package result (local submit only)")
+	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "unsupported: terminal job workspaces are always reclaimed")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "print JSON (agents should prefer this)")
 	_ = cmd.MarkFlagRequired("workflow")
 	return cmd
 }
 
-func loadPaths() *config.Config {
+func loadPaths() (*config.Config, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) || cfgPath != "" {
+			return nil, err
+		}
 		cfg = config.Defaults()
 		cfg.TrustedCIDRs = []string{"127.0.0.0/8"}
-		_ = cfg.Normalize()
+		if err := cfg.Normalize(); err != nil {
+			return nil, err
+		}
 	}
 	applyPathFlags(cfg)
-	return cfg
+	if err := cfg.ValidateStorage(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 func applyPathFlags(cfg *config.Config) {
@@ -170,7 +201,10 @@ func submitRemote(cmd *cobra.Command, loaded workflow.Loaded, cfg *config.Config
 	bundle, err := dispatch.Build(loaded, dispatch.BuildOptions{
 		InlineMax: inlineMax,
 		Publish: func(name, path string) (resource.Seed, error) {
-			return resource.PublishTreeTo(cfg.PackagesDir(), name, path, time.Now())
+			return run.PublishLocal(cmd.Context(), name, path, run.Options{
+				DataDir: cfg.DataDir, SeedsDir: cfg.SeedsDir(), WorktreesDir: cfg.WorktreesDir(), RunsDir: cfg.RunsDir(), Storage: cfg.Storage,
+				EnsureSpace: storageAdmission(cli, cfg),
+			})
 		},
 		Log: cmd.ErrOrStderr(),
 	})
@@ -224,6 +258,22 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func storageAdmission(cli *control.Client, cfg *config.Config) func(context.Context, int64) error {
+	return func(ctx context.Context, incoming int64) error {
+		seeds, err := filepath.Abs(cfg.SeedsDir())
+		if err != nil {
+			return err
+		}
+		worktrees, err := filepath.Abs(cfg.WorktreesDir())
+		if err != nil {
+			return err
+		}
+		return cli.EnsureSeedSpace(ctx, control.StorageRequest{
+			Incoming: incoming, ReservationID: quota.ReservationID(ctx), SeedsDir: seeds, WorktreesDir: worktrees,
+		})
+	}
 }
 
 func resolveSubmitTarget(target string, loaded workflow.Loaded, peers []catalog.Entry) (catalog.Entry, error) {

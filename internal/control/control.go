@@ -195,12 +195,48 @@ func (c *Client) Resource(digest string) (resource.Info, error) {
 	if hex == "" {
 		return resource.Info{}, fmt.Errorf("invalid digest")
 	}
+
 	var out resource.Info
 	err := c.withTimeout(20*time.Second).get("/api/v1/resources/sha256/"+hex, &out)
 	return out, err
 }
 
+type StorageRequest struct {
+	Incoming      int64  `json:"incoming"`
+	ReservationID string `json:"reservation_id,omitempty"`
+	SeedsDir      string `json:"seeds_dir"`
+	WorktreesDir  string `json:"worktrees_dir"`
+}
+
+func (c *Client) EnsureSeedSpace(ctx context.Context, admission StorageRequest) error {
+	b, err := json.Marshal(admission)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Base+"/api/v1/storage/ensure", bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	resp, err := c.withTimeout(5 * time.Minute).HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16_384))
+		if readErr != nil {
+			return readErr
+		}
+		return fmt.Errorf("%s: %s", resp.Status, bytes.TrimSpace(body))
+	}
+	return nil
+}
+
 func (c *Client) ResourceContent(digest string) (resource.Blob, error) {
+	return c.ResourceContentContext(context.Background(), digest, "")
+}
+
+func (c *Client) ResourceContentContext(ctx context.Context, digest, reservationID string) (resource.Blob, error) {
 	hex := resource.Hex(digest)
 	if hex == "" {
 		return resource.Blob{}, fmt.Errorf("invalid digest")
@@ -210,7 +246,12 @@ func (c *Client) ResourceContent(digest string) (resource.Blob, error) {
 		hc = *c.HTTP
 		hc.Timeout = 5 * time.Minute
 	}
-	resp, err := hc.Get(c.Base + "/api/v1/resources/sha256/" + hex + "/content")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/api/v1/resources/sha256/"+hex+"/content", nil)
+	if err != nil {
+		return resource.Blob{}, err
+	}
+	req.Header.Set("X-PTC-Reservation", reservationID)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return resource.Blob{}, err
 	}
