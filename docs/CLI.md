@@ -277,8 +277,10 @@ ptc tasks
 ptc tasks --json
 ptc tasks --search cuda --status completed --sort started --order desc
 ptc tasks --node worker-a
-ptc tasks show run-20261110T155326Z-test
+ptc tasks show run-20261110T155326Z-test --node worker-a
 ```
+
+新运行 ID 带随机后缀，同秒在不同节点上运行相同任务也不会互相覆盖。旧记录仍可查看；若旧 ID 在多个节点重复，使用 `tasks show <id> --node <节点名或 peer id>` 指定节点，WebUI 也会分别显示各节点的记录。
 
 列表筛选与 WebUI 任务分栏语义相同：
 

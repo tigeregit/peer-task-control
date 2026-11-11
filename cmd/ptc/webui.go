@@ -157,19 +157,21 @@ func loadStaticTasks(path string) []Task {
 func mergeBoard(static, runs []Task, st control.Status, fetchErr error, started, now time.Time) TaskBoard {
 	live := meshWatchTask(st, fetchErr, started, now)
 	out := []Task{live}
-	seen := map[string]bool{live.ID: true}
+	seen := map[string]bool{}
+	seenIDs := map[string]bool{live.ID: true}
 	for _, t := range runs {
-		if t.ID == "" || seen[t.ID] {
+		key := t.ID + "\x00" + t.PeerID
+		if t.ID == "" || t.ID == live.ID || seen[key] {
 			continue
 		}
-		seen[t.ID] = true
+		seen[key], seenIDs[t.ID] = true, true
 		out = append(out, t)
 	}
 	for _, t := range static {
-		if t.ID == "" || seen[t.ID] {
+		if t.ID == "" || seenIDs[t.ID] {
 			continue
 		}
-		seen[t.ID] = true
+		seenIDs[t.ID] = true
 		out = append(out, t)
 	}
 	return TaskBoard{GeneratedAt: now, Version: version.Version, Tasks: out}

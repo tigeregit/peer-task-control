@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -176,11 +177,14 @@ func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer stri
 		return dispatch.Job{}, dispatch.Event{}, fmt.Errorf("exec queue on %s is full (%d jobs); try again later", n.Cfg.Name, pending)
 	}
 	now := time.Now().UTC()
+	runID, err := run.TaskID(now, u.Loaded.JobName)
+	if err != nil {
+		return dispatch.Job{}, dispatch.Event{}, err
+	}
 	jobID := req.JobID
 	if jobID == "" {
-		jobID = fmt.Sprintf("job-%s-%s", now.Format("20060102T150405.000Z"), u.Loaded.JobName)
+		jobID = "job-" + strings.TrimPrefix(runID, "run-")
 	}
-	runID := run.TaskID(now, u.Loaded.JobName)
 	sub := req.Submitter
 	if sub.PeerID == "" {
 		sub.PeerID = remotePeer
@@ -195,10 +199,13 @@ func (n *Node) acceptBundle(bundle []byte, req dispatch.Request, remotePeer stri
 		Submitter: sub,
 		Timeout:   firstTimeout(req.Timeout, u.Loaded.Prepare.Workspace.Timeout, u.Loaded.Prepare.Target.Timeout),
 	}
+	t, err := dispatch.QueuedTask(u.Loaded, job, n.execHost())
+	if err != nil {
+		return dispatch.Job{}, dispatch.Event{}, err
+	}
 	if err := n.queue.Enqueue(&job, bundle); err != nil {
 		return dispatch.Job{}, dispatch.Event{}, err
 	}
-	t := dispatch.QueuedTask(u.Loaded, job, n.execHost())
 	if _, err := dispatch.WriteRecord(n.Cfg.RunsDir(), t); err != nil {
 		n.Log.Warn("failed to write queued run record", "err", err)
 	}

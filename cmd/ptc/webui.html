@@ -550,7 +550,7 @@
         if (parts[1]) return { page: "resource", digest: decodeURIComponent(parts[1]).toLowerCase() };
         return { page: "resources" };
       }
-      if (parts[0] === "tasks" && parts[1]) return { page: "task", id: decodeURIComponent(parts[1]) };
+      if (parts[0] === "tasks" && parts[1]) return { page: "task", id: decodeURIComponent(parts[1]), peer: parts[2] ? decodeURIComponent(parts[2]) : "" };
       return { page: "tasks" };
     }
 
@@ -818,7 +818,7 @@
     function rowHTML(task) {
       const i = t();
       const src = task.source === "live" ? i.sourceLive : (task.source ? i.sourceRecorded : "");
-      return `<div class="row" onclick="location.hash='#/tasks/${encodeURIComponent(task.id)}'">
+      return `<div class="row" onclick="location.hash='#/tasks/${encodeURIComponent(task.id)}${task.peer_id ? "/" + encodeURIComponent(task.peer_id) : ""}'">
         ${icon(task.status)}
         <div class="meta">
           <div class="title">${withCopy(tx(task.name), esc(tx(task.name)))}</div>
@@ -835,9 +835,9 @@
       </div>`;
     }
 
-    function renderTask(id) {
+    function renderTask(id, peer) {
       const i = t();
-      const task = (tasksBoard.tasks || []).find(x => x.id === id);
+      const task = (tasksBoard.tasks || []).find(x => x.id === id && (!peer || x.peer_id === peer));
       if (!task) return `${header("tasks")}<main><a class="back" href="#/">← ${i.allTasks}</a><div class="empty">${i.empty}</div></main>${footer()}`;
       const jobs = task.jobs || [];
       return `${header("tasks")}<main>
@@ -867,32 +867,32 @@
         </section>
         <section class="jobs">
           <h2>${i.jobs}</h2>
-          ${jobs.map(j => jobHTML(task.id, j)).join("")}
+          ${jobs.map(j => jobHTML(task.id, task.peer_id || "", j)).join("")}
         </section>
       </main>${footer()}`;
     }
 
-    function isOpen(taskId, job) {
-      const key = taskId + ":" + (job.id || tx(job.name));
+    function isOpen(taskId, peer, job) {
+      const key = taskId + ":" + peer + ":" + (job.id || tx(job.name));
       if (openJobs[key] === undefined) {
         return job.status === "in_progress" || job.status === "failure";
       }
       return openJobs[key];
     }
-    function toggleJob(taskId, jobId) {
-      const task = (tasksBoard.tasks || []).find(x => x.id === taskId);
+    function toggleJob(taskId, peer, jobId) {
+      const task = (tasksBoard.tasks || []).find(x => x.id === taskId && (x.peer_id || "") === peer);
       const job = ((task && task.jobs) || []).find(j => (j.id || tx(j.name)) === jobId) || {id: jobId, status: ""};
-      openJobs[taskId + ":" + jobId] = !isOpen(taskId, job);
+      openJobs[taskId + ":" + peer + ":" + jobId] = !isOpen(taskId, peer, job);
       render();
     }
     function setFilter(f) { filter = f; render(); }
-    function jobHTML(taskId, job) {
-      const open = isOpen(taskId, job);
+    function jobHTML(taskId, peer, job) {
+      const open = isOpen(taskId, peer, job);
       const jobId = job.id || tx(job.name);
       const running = (job.steps||[]).some(s => s.status === "in_progress");
       return `<div class="job ${open?"open":""}">
         <div class="job-row">
-        <button class="job-h" onclick="toggleJob('${escAttr(taskId)}','${escAttr(jobId)}')">
+        <button class="job-h" onclick="toggleJob('${escAttr(taskId)}','${escAttr(peer)}','${escAttr(jobId)}')">
           <svg class="chev" viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>
           ${icon(job.status)}
           <span class="nm">${esc(tx(job.name))}${running ? ` · ${t().currently}` : ""}</span>
@@ -1362,7 +1362,7 @@
       else if (r.page === "node") html = renderNode(r.id);
       else if (r.page === "resources") html = renderResources();
       else if (r.page === "resource") html = renderResource(r.digest);
-      else if (r.page === "task") html = renderTask(r.id);
+      else if (r.page === "task") html = renderTask(r.id, r.peer);
       else html = renderTasks();
       document.getElementById("app").innerHTML = html;
       if (restoreId) {

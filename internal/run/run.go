@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -67,9 +68,13 @@ type DispatchInfo struct {
 	Executor  taskboard.Party
 }
 
-// TaskID is the run record ID for a job started at start.
-func TaskID(start time.Time, job string) string {
-	return "run-" + start.UTC().Format("20060102T150405Z") + "-" + job
+// TaskID creates a globally distinct run record ID, even across nodes.
+func TaskID(start time.Time, job string) (string, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("generate run id: %w", err)
+	}
+	return fmt.Sprintf("run-%s-%s-%x", start.UTC().Format("20060102T150405Z"), job, nonce), nil
 }
 
 type Result struct {
@@ -127,10 +132,17 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 	if start.IsZero() {
 		start = opt.Now()
 	}
+	if opt.RunID == "" {
+		var err error
+		opt.RunID, err = TaskID(start, loaded.JobName)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	if loaded.SeedOnly {
 		return submitSeeds(loaded, start, opt)
 	}
-	id := start.UTC().Format("20060102T150405Z")
+	id := strings.TrimPrefix(opt.RunID, "run-")
 	host, _ := os.Hostname()
 	if !opt.Force {
 		if err := checkTarget(loaded.Prepare.Target, opt.Detect()); err != nil {
@@ -140,13 +152,13 @@ func Submit(loaded workflow.Loaded, opt Options) (Result, error) {
 
 	workRoot := loaded.Prepare.Layout.Root
 	if workRoot == "" {
-		workRoot = filepath.Join(opt.worktreesDir(), id+"-"+loaded.JobName)
+		workRoot = filepath.Join(opt.worktreesDir(), id)
 	}
-	pkgDir := filepath.Join(opt.packagesDir(), id+"-"+loaded.JobName)
+	pkgDir := filepath.Join(opt.packagesDir(), id)
 	runsDir := opt.runsDir()
 	store := cas.New(opt.casDir())
 
-	res := Result{ID: id, Worktree: workRoot, PackageDir: pkgDir}
+	res := Result{ID: opt.RunID, Worktree: workRoot, PackageDir: pkgDir}
 	job := taskboard.Job{ID: loaded.JobName, Name: taskboard.Text{ZH: loaded.JobName, EN: loaded.JobName}, StartedAt: taskboard.PtrTime(start)}
 	var recSteps []taskboard.Step
 
@@ -609,7 +621,7 @@ func finishTask(loaded workflow.Loaded, host string, start, end time.Time, statu
 		ann = append(ann, taskboard.Annotation{Level: "notice", Message: taskboard.Text{ZH: "结果种子 " + digest, EN: "Result seed " + digest}})
 	}
 	t := taskboard.Task{
-		ID:          firstNonEmpty(runID, TaskID(*job.StartedAt, loaded.JobName)),
+		ID:          runID,
 		Name:        taskboard.Text{ZH: name, EN: name},
 		Status:      status,
 		Event:       event,
@@ -640,13 +652,4 @@ func writeTask(dir string, t taskboard.Task) (string, error) {
 		return "", err
 	}
 	return path, os.WriteFile(path, b, 0o644)
-}
-
-func firstNonEmpty(v ...string) string {
-	for _, s := range v {
-		if s != "" {
-			return s
-		}
-	}
-	return ""
 }

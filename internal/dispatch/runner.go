@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func WriteRecord(runsDir string, t taskboard.Task) (string, error) {
 	return path, writeJSON(path, t)
 }
 
-func QueuedTask(loaded workflow.Loaded, job Job, exec Host) taskboard.Task {
+func QueuedTask(loaded workflow.Loaded, job Job, exec Host) (taskboard.Task, error) {
 	name := loaded.Prepare.Metadata.Name
 	if name == "" {
 		name = loaded.Workflow.Name
@@ -42,7 +43,7 @@ func QueuedTask(loaded workflow.Loaded, job Job, exec Host) taskboard.Task {
 	start := job.QueuedAt
 	id := job.RunID
 	if id == "" {
-		id = run.TaskID(start, loaded.JobName)
+		return taskboard.Task{}, fmt.Errorf("queued job %s has no run id", job.JobID)
 	}
 	sub := job.Submitter
 	actor := sub.Node
@@ -76,7 +77,7 @@ func QueuedTask(loaded workflow.Loaded, job Job, exec Host) taskboard.Task {
 		t.EndedAt = taskboard.PtrTime(end)
 		t.Summary = taskboard.Text{ZH: "已取消", EN: "cancelled"}
 	}
-	return t
+	return t, nil
 }
 
 // Execute unpacks a bundle, materializes seeds (inline or by digest), and

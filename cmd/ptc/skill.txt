@@ -117,7 +117,7 @@ ptc policy show|allow|deny|service
 ptc submit --workflow <file> [--target <name|peer|auto>] [--detach] [--fetch-result <dir>] [--json] [--dry-run]
 ptc queue [--node <name>] [--json]
 ptc cancel <run-id> [--json]
-ptc tasks / tasks show <id> [--json]
+ptc tasks / tasks show <id> [--node <name-or-peer-id>] [--json]
 ptc resources / resources show|get <digest> [--json]
 ptc clean outputs|runs|resource|worktrees [--match RE] [--dry-run] [--yes] [--force] [--json]
 ptc webui

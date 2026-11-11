@@ -35,6 +35,7 @@ func tasksCmd() *cobra.Command {
 
 func tasksShowCmd() *cobra.Command {
 	var jsonOut bool
+	var node string
 	cmd := &cobra.Command{
 		Use:   "show ID",
 		Short: "Show one task run",
@@ -48,28 +49,46 @@ func tasksShowCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("talking to daemon: %w", err)
 			}
-			for _, t := range runs {
-				if t.ID == args[0] {
-					if jsonOut {
-						return printJSON(t)
-					}
-					fmt.Printf("id      %s\n", t.ID)
-					fmt.Printf("name    %s / %s\n", t.Name.ZH, t.Name.EN)
-					fmt.Printf("status  %s\n", t.Status)
-					fmt.Printf("node    %s\n", t.Node)
-					fmt.Printf("summary %s\n", t.Summary.ZH)
-					if t.Summary.ZH == "" {
-						fmt.Printf("summary %s\n", t.Summary.EN)
-					}
-					printWorktree(t.Worktree)
-					return nil
-				}
+			t, err := selectTask(runs, args[0], node)
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("task %s not found", args[0])
+			if jsonOut {
+				return printJSON(t)
+			}
+			fmt.Printf("id      %s\n", t.ID)
+			fmt.Printf("name    %s / %s\n", t.Name.ZH, t.Name.EN)
+			fmt.Printf("status  %s\n", t.Status)
+			fmt.Printf("node    %s\n", t.Node)
+			fmt.Printf("summary %s\n", t.Summary.ZH)
+			if t.Summary.ZH == "" {
+				fmt.Printf("summary %s\n", t.Summary.EN)
+			}
+			printWorktree(t.Worktree)
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "print JSON")
+	cmd.Flags().StringVar(&node, "node", "", "disambiguate an older run ID by node name or peer id")
 	return cmd
+}
+
+func selectTask(runs []taskboard.Task, id, node string) (taskboard.Task, error) {
+	var found *taskboard.Task
+	for i := range runs {
+		t := &runs[i]
+		if t.ID != id || (node != "" && t.Node != node && t.PeerID != node) {
+			continue
+		}
+		if found != nil {
+			return taskboard.Task{}, fmt.Errorf("task %s exists on multiple nodes; select a unique peer id with --node", id)
+		}
+		found = t
+	}
+	if found == nil {
+		return taskboard.Task{}, fmt.Errorf("task %s not found", id)
+	}
+	return *found, nil
 }
 
 func tasksList(jsonOut bool, f query.TaskFilter) error {

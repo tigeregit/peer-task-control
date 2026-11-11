@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/tigeregit/peer-task-control/internal/caps"
 	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 	"github.com/tigeregit/peer-task-control/internal/workflow"
 )
 
@@ -69,6 +71,7 @@ func TestSubmitLocalFixture(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name = "workflow.windows.yaml"
 	}
+
 	wf := filepath.Join("..", "..", "testdata", "submit", name)
 	loaded, err := workflow.LoadJob(wf, "")
 	if err != nil {
@@ -110,5 +113,35 @@ func TestSubmitLocalFixture(t *testing.T) {
 		if !names[seed.Name] {
 			t.Fatalf("inventory missing seed %s: %+v", seed.Name, names)
 		}
+	}
+}
+
+func TestSameTimeJobsHaveSeparateRecordsAndWorktrees(t *testing.T) {
+	name := "workflow.yaml"
+	if runtime.GOOS == "windows" {
+		name = "workflow.windows.yaml"
+	}
+	loaded, err := workflow.LoadJob(filepath.Join("..", "..", "testdata", "submit", name), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 11, 5, 0, 28, 0, time.UTC)
+	opt := Options{DataDir: dir, Force: true, Now: func() time.Time { return now }}
+	first, err := Submit(loaded, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Submit(loaded, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID || first.ID != first.Task.ID || second.ID != second.Task.ID ||
+		first.Worktree == second.Worktree || first.PackageDir == second.PackageDir ||
+		first.TaskPath == second.TaskPath {
+		t.Fatalf("same-time jobs collided: first=%+v second=%+v", first, second)
+	}
+	if tasks := taskboard.LoadDir(filepath.Join(dir, "runs")); len(tasks) != 2 {
+		t.Fatalf("expected both records, got %+v", tasks)
 	}
 }

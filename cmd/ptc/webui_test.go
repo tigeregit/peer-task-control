@@ -7,6 +7,7 @@ import (
 
 	"github.com/tigeregit/peer-task-control/internal/catalog"
 	"github.com/tigeregit/peer-task-control/internal/control"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 func TestMeshWatchFailure(t *testing.T) {
@@ -50,6 +51,7 @@ func TestMergeBoardPutsLiveFirst(t *testing.T) {
 			},
 		},
 	}
+
 	static := []Task{{ID: "mesh-watch", Name: Text{EN: "should be replaced"}}, {ID: "recorded", Name: Text{EN: "recorded"}, Status: "success"}}
 	board := mergeBoard(static, nil, st, nil, started, now)
 	if len(board.Tasks) != 2 {
@@ -67,5 +69,27 @@ func TestMergeBoardPutsLiveFirst(t *testing.T) {
 	}
 	if board.Tasks[1].ID != "recorded" {
 		t.Fatalf("second=%s", board.Tasks[1].ID)
+	}
+}
+
+func TestLegacyCollidingRunIDsRemainDistinct(t *testing.T) {
+	runs := []Task{
+		{ID: "legacy-id", Node: "one", PeerID: "peer-one", Status: "success"},
+		{ID: "legacy-id", Node: "two", PeerID: "peer-two", Status: "failure"},
+	}
+	board := mergeBoard(nil, runs, control.Status{}, nil, time.Now(), time.Now())
+	if len(board.Tasks) != 3 || board.Tasks[1].PeerID == board.Tasks[2].PeerID {
+		t.Fatalf("colliding legacy records hidden: %+v", board.Tasks)
+	}
+	if _, err := selectTask(runs, "legacy-id", ""); err == nil {
+		t.Fatal("ambiguous legacy ID selected silently")
+	}
+	task, err := selectTask(runs, "legacy-id", "peer-two")
+	if err != nil || task.Status != "failure" {
+		t.Fatalf("select legacy record by node: %+v, %v", task, err)
+	}
+	merged := taskboard.MergeTasks(nil, runs...)
+	if len(merged) != 2 {
+		t.Fatalf("peer records merged: %+v", merged)
 	}
 }
