@@ -21,11 +21,14 @@ type Volume struct {
 
 // Usage is advertised in the catalog and shown in peers show / the WebUI.
 type Usage struct {
-	SeedsBytes     int64    `json:"seeds_bytes"`
-	WorktreesBytes int64    `json:"worktrees_bytes"`
-	OutputsBytes   int64    `json:"outputs_bytes"`
-	RecordsBytes   int64    `json:"records_bytes"`
-	Volumes        []Volume `json:"volumes,omitempty"`
+	SeedsBytes     int64 `json:"seeds_bytes"`
+	WorktreesBytes int64 `json:"worktrees_bytes"`
+	OutputsBytes   int64 `json:"outputs_bytes"`
+	RecordsBytes   int64 `json:"records_bytes"`
+	// BlocksBytes is the bitswap block store (DAG nodes, filestore index and
+	// any block copies); file data referenced in place is in SeedsBytes.
+	BlocksBytes int64    `json:"blocks_bytes,omitempty"`
+	Volumes     []Volume `json:"volumes,omitempty"`
 }
 
 // Measure walks this node's storage roots and the volumes they sit on.
@@ -41,6 +44,7 @@ func Measure(cfg *config.Config) Usage {
 	u.SeedsBytes += dirSize(cas)
 	u.WorktreesBytes = dirSize(cfg.WorktreesDir())
 	u.RecordsBytes = dirSize(cfg.RunsDir())
+	u.BlocksBytes = dirSize(filepath.Join(cfg.SeedsDir(), "blocks"))
 
 	type root struct {
 		path, role string

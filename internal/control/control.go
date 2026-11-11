@@ -204,10 +204,11 @@ func (c *Client) ResourceContent(digest string) (resource.Blob, error) {
 	if hex == "" {
 		return resource.Blob{}, fmt.Errorf("invalid digest")
 	}
-	hc := http.Client{Timeout: 5 * time.Minute}
+	// A first download may pull a multi-GB seed over bitswap before streaming.
+	hc := http.Client{Timeout: 6 * time.Hour}
 	if c.HTTP != nil {
 		hc = *c.HTTP
-		hc.Timeout = 5 * time.Minute
+		hc.Timeout = 6 * time.Hour
 	}
 	resp, err := hc.Get(c.Base + "/api/v1/resources/sha256/" + hex + "/content")
 	if err != nil {
@@ -351,4 +352,41 @@ func (c *Client) Exec(ctx context.Context, target string, bundle []byte, follow 
 			return last, err
 		}
 	}
+}
+
+// PullProvider is one holder's share of a bitswap pull.
+type PullProvider struct {
+	Peer   string `json:"peer"`
+	Blocks int    `json:"blocks"`
+	Bytes  int64  `json:"bytes"`
+}
+
+// PullResult mirrors node.PullResult for the CLI.
+type PullResult struct {
+	Digest     string   `json:"digest"`
+	CID        string   `json:"cid"`
+	Name       string   `json:"name,omitempty"`
+	Kind       string   `json:"kind"`
+	Path       string   `json:"path"`
+	Holders    []string `json:"holders"`
+	AlreadyHad bool     `json:"already_local,omitempty"`
+	TotalNS    int64    `json:"total_ns"`
+	Fetch      struct {
+		DurationNS int64          `json:"duration_ns"`
+		Bytes      int64          `json:"bytes_received"`
+		Blocks     int            `json:"blocks_received"`
+		MBPerSec   float64        `json:"mb_per_sec"`
+		Providers  []PullProvider `json:"providers"`
+	} `json:"fetch"`
+}
+
+// Pull asks the daemon to fetch a seed into its store with bitswap.
+func (c *Client) Pull(digest string) (PullResult, error) {
+	var out PullResult
+	hex := resource.Hex(digest)
+	if hex == "" {
+		return out, fmt.Errorf("invalid digest")
+	}
+	err := c.withTimeout(6*time.Hour).post("/api/v1/resources/sha256/"+hex+"/pull", struct{}{}, &out)
+	return out, err
 }

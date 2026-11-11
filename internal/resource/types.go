@@ -7,7 +7,10 @@ import (
 
 // Seed is a content-addressed object advertised on the mesh.
 type Seed struct {
-	Digest    string     `json:"digest"`
+	Digest string `json:"digest"`
+	// CID is the UnixFS root of the same content on the bitswap data plane.
+	// Digest stays the identity for display and verification.
+	CID       string     `json:"cid,omitempty"`
 	Name      string     `json:"name,omitempty"`
 	Kind      string     `json:"kind"`           // "tree" or "blob"
 	Unit      string     `json:"unit,omitempty"` // "directory" = one digest for the whole tree
@@ -17,6 +20,8 @@ type Seed struct {
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 	Pin       bool       `json:"pin,omitempty"`
 	RunOK     *bool      `json:"run_ok,omitempty"`
+	// Replica marks a copy fetched from the mesh (temporary, GC-able).
+	Replica bool `json:"replica,omitempty"`
 }
 
 type File struct {

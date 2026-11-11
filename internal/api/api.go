@@ -32,6 +32,8 @@ type Node interface {
 	CollectQueue(ctx context.Context) []dispatch.QueueItem
 	Cancel(ctx context.Context, id string) error
 	FindPeer(id string) (catalog.Entry, bool)
+	// Pull fetches a seed into this node's store with bitswap.
+	Pull(ctx context.Context, digest string) (any, error)
 }
 
 type Server struct {
@@ -50,6 +52,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/resources", s.resources)
 	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}", s.resource)
 	mux.HandleFunc("GET /api/v1/resources/sha256/{hex}/content", s.resourceContent)
+	mux.HandleFunc("POST /api/v1/resources/sha256/{hex}/pull", s.resourcePull)
 	mux.HandleFunc("POST /api/v1/exec", s.exec)
 	mux.HandleFunc("GET /api/v1/queue", s.queue)
 	mux.HandleFunc("POST /api/v1/cancel", s.cancel)
@@ -177,6 +180,16 @@ func (s *Server) resourceContent(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, blob.Body)
+}
+
+func (s *Server) resourcePull(w http.ResponseWriter, r *http.Request) {
+	digest := "sha256:" + r.PathValue("hex")
+	res, err := s.Node.Pull(r.Context(), digest)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": res})
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func viewPolicy(p *policy.Store) control.PolicyView {

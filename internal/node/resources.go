@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -177,6 +178,10 @@ func (n *Node) handleResources(s network.Stream) {
 	case "show":
 		_ = writeResMsg(s, resourcesMessage{Type: "show", Node: n.Cfg.Name, PeerID: n.Host.ID().String(), Seeds: lookupSeeds(n.Cfg.PackagesDir(), n.Cfg.CASDir(), msg.Digest)})
 	case "blob":
+		if d := n.Store.Check("files", s.Conn().RemotePeer().String(), "", streamIP(s)); !d.Allow {
+			_ = writeResMsg(s, resourcesMessage{Type: "blob", Error: "policy refused files: " + d.Reason})
+			return
+		}
 		blob, err := n.openLocal(msg.Digest)
 		if err != nil {
 			_ = writeResMsg(s, resourcesMessage{Type: "blob", Error: err.Error()})
@@ -249,6 +254,18 @@ func (n *Node) OpenResource(ctx context.Context, digest string) (resource.Blob, 
 	}
 	if blob, err := n.openLocal(digest); err == nil {
 		return blob, nil
+	}
+	if n.dp != nil && n.Cfg.Transfer.Mode != "tar" {
+		_, err := n.PullSeed(ctx, digest, nil)
+		if err == nil {
+			return n.openLocal(digest)
+		}
+		if n.Cfg.Transfer.Mode == "bitswap" {
+			return resource.Blob{}, err
+		}
+		if !errors.Is(err, ErrNoCID) {
+			n.Log.Warn("bitswap pull failed; falling back to the tar stream", "digest", digest, "err", err)
+		}
 	}
 	info, err := n.Resource(ctx, digest)
 	if err != nil {

@@ -51,6 +51,14 @@ type Exec struct {
 	Concurrency int `yaml:"concurrency,omitempty"`
 }
 
+// Transfer selects how seeds move between nodes.
+type Transfer struct {
+	// Mode is auto (default: bitswap when the holder advertises a CID,
+	// otherwise the whole-seed tar stream), bitswap (never fall back), or tar
+	// (P0/P2 behaviour, no block exchange).
+	Mode string `yaml:"mode,omitempty"`
+}
+
 type Config struct {
 	Name         string        `yaml:"name"`
 	Listen       string        `yaml:"listen"`
@@ -70,6 +78,7 @@ type Config struct {
 	ScanHosts    []string     `yaml:"scan_hosts,omitempty"`
 	Storage      Storage      `yaml:"storage,omitempty"`
 	Exec         Exec         `yaml:"exec,omitempty"`
+	Transfer     Transfer     `yaml:"transfer,omitempty"`
 	Path         string       `yaml:"-"`
 	TrustedNets  []*net.IPNet `yaml:"-"`
 	PSKBytes     []byte       `yaml:"-"`
@@ -168,6 +177,14 @@ func (c *Config) Normalize() error {
 		c.PSKBytes = b
 	}
 	c.ApplyEnv()
+	switch strings.ToLower(strings.TrimSpace(c.Transfer.Mode)) {
+	case "", "auto":
+		c.Transfer.Mode = "auto"
+	case "bitswap", "tar":
+		c.Transfer.Mode = strings.ToLower(strings.TrimSpace(c.Transfer.Mode))
+	default:
+		return fmt.Errorf("transfer.mode %q: want auto, bitswap or tar", c.Transfer.Mode)
+	}
 	if c.Exec.Concurrency <= 0 {
 		c.Exec.Concurrency = 1
 	}
@@ -225,6 +242,10 @@ func (c *Config) RunsDir() string {
 	}
 	return filepath.Join(DefaultDataDir(), "runs")
 }
+
+// PullTmpDir stages bitswap pulls on the seeds volume so the verified tree
+// can be renamed into packages/ without copying.
+func (c *Config) PullTmpDir() string { return filepath.Join(c.SeedsDir(), ".pull") }
 
 func (c *Config) FetchTmpDir() string {
 	return filepath.Join(c.WorktreesDir(), ".fetch")

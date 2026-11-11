@@ -46,12 +46,33 @@ func materializeDigest(name, digest, dest string, store *cas.Store, log *bytes.B
 		}
 		fmt.Fprintf(log, "seed %s CAS blob %s failed verification; trying the mesh\n", name, d)
 	}
-	if opt.Fetch == nil {
-		return fmt.Errorf("seed %s (%s) is not on this node and no mesh fetcher is available (is ptc daemon running?)", name, d)
-	}
 	ctx := opt.Context
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if opt.Pull != nil {
+		perr := opt.Pull(ctx, d, log)
+		if perr == nil {
+			if dir := resource.FindPackageDirAt(opt.packagesDir(), d); dir != "" {
+				if err := copyTreeSkipManifest(dir, dest); err != nil {
+					return err
+				}
+				fmt.Fprintf(log, "seed %s %s pulled with bitswap (DirDigest verified) -> %s\n", name, d, dest)
+				return nil
+			}
+			if store.Has(d) {
+				if err := store.Materialize(d, dest); err != nil {
+					return err
+				}
+				fmt.Fprintf(log, "seed %s %s pulled with bitswap (sha256 verified) -> %s\n", name, d, dest)
+				return nil
+			}
+		} else {
+			fmt.Fprintf(log, "seed %s %s: bitswap pull unavailable (%v); trying the tar stream\n", name, d, perr)
+		}
+	}
+	if opt.Fetch == nil {
+		return fmt.Errorf("seed %s (%s) is not on this node and no mesh fetcher is available (is ptc daemon running?)", name, d)
 	}
 	t0 := time.Now()
 	blob, err := opt.Fetch(ctx, d)

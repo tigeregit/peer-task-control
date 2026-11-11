@@ -68,6 +68,7 @@ type Node struct {
 	execKick  chan struct{}
 	disk      disk.Usage
 	diskAt    time.Time
+	dp        *dataPlane
 }
 
 func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node, error) {
@@ -136,6 +137,7 @@ func Start(parent context.Context, cfg *config.Config, log *slog.Logger) (*Node,
 		return nil, err
 	}
 	h.Network().Notify((*netNotifee)(n))
+	n.startDataPlane()
 
 	if !cfg.DisableMDNS {
 		svc := mdns.NewMdnsService(h, mdnsServiceTag, (*mdnsNotifee)(n))
@@ -195,6 +197,7 @@ func (n *Node) Close() error {
 	if n.mdns != nil {
 		_ = n.mdns.Close()
 	}
+	n.closeDataPlane()
 	if n.Host != nil {
 		return n.Host.Close()
 	}

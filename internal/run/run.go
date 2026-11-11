@@ -46,6 +46,10 @@ type Options struct {
 	// Fetch downloads a seed by digest from the mesh (closest replica).
 	// Nil means digest seeds must already be on this node.
 	Fetch func(ctx context.Context, digest string) (resource.Blob, error)
+	// Pull, when set, fetches a seed into this node's local store with the
+	// bitswap data plane. materializeDigest then links it from there and
+	// only falls back to Fetch (tar stream) when Pull fails.
+	Pull func(ctx context.Context, digest string, log io.Writer) error
 	// SeedOverrides replaces how named seeds are retrieved. Mesh dispatch uses
 	// it to point seeds at inline bundle content or at a published digest.
 	SeedOverrides map[string]SeedSource

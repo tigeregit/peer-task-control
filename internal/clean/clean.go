@@ -227,7 +227,10 @@ func PlanResources(cfg *config.Config, opt Options, active map[string][]string) 
 	}
 	var out []Plan
 	for _, s := range resource.InventoryAt(cfg.PackagesDir(), cfg.CASDir()) {
-		hay := strings.Join([]string{s.Digest, s.Name, s.Kind}, " ")
+		hay := strings.Join([]string{s.Digest, s.CID, s.Name, s.Kind}, " ")
+		if s.Replica {
+			hay += " replica"
+		}
 		if !matches(re, opt.IDs, hay, s.Digest) {
 			continue
 		}
@@ -287,6 +290,11 @@ func Apply(plans []Plan) (freed int64, err error) {
 		}
 		if err := os.RemoveAll(p.Path); err != nil {
 			return freed, err
+		}
+		if p.Kind == Resources {
+			// CAS blob sidecar with the bitswap CID; the daemon's block GC
+			// drops the now-unreferenced blocks on its next pass.
+			_ = os.Remove(resource.BlobCIDPath(p.Path))
 		}
 		freed += p.Bytes
 	}

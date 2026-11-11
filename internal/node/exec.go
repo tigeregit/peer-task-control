@@ -78,6 +78,13 @@ func (n *Node) runOptions() run.Options {
 		WorktreesDir: n.Cfg.WorktreesDir(),
 		RunsDir:      n.Cfg.RunsDir(),
 		Fetch:        n.OpenResource,
+		Pull: func(ctx context.Context, digest string, log io.Writer) error {
+			if n.dp == nil || n.Cfg.Transfer.Mode == "tar" {
+				return ErrNoCID
+			}
+			_, err := n.PullSeed(ctx, digest, log)
+			return err
+		},
 	}
 }
 
