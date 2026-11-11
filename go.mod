@@ -1,4 +1,4 @@
-module github.com/peer-task-control/ptc
+module github.com/tigeregit/peer-task-control
 
 go 1.26.0
 

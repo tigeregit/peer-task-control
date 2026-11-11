@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/query"
-	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/query"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 func tasksCmd() *cobra.Command {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/dispatch"
-	"github.com/peer-task-control/ptc/internal/query"
+	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/query"
 )
 
 func queueCmd() *cobra.Command {

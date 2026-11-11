@@ -2,7 +2,7 @@ package node
 
 import (
 	"context"
-	"github.com/peer-task-control/ptc/internal/cas"
+	"github.com/tigeregit/peer-task-control/internal/cas"
 	"io"
 	"os"
 	"path/filepath"

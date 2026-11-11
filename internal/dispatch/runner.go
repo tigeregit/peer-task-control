@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/run"
-	"github.com/peer-task-control/ptc/internal/taskboard"
-	"github.com/peer-task-control/ptc/internal/workflow"
+	"github.com/tigeregit/peer-task-control/internal/run"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/workflow"
 )
 
 // Host is the executing node, used to stamp records and fetch seeds.

@@ -7,10 +7,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/peer-task-control/ptc/internal/config"
-	"github.com/peer-task-control/ptc/internal/dispatch"
-	"github.com/peer-task-control/ptc/internal/resource"
-	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 type Kind string

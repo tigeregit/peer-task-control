@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/config"
-	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/config"
+	"github.com/tigeregit/peer-task-control/internal/resource"
 )
 
 func testCfg(t *testing.T) *config.Config {

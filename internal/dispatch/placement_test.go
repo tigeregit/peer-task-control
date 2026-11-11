@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/peer-task-control/ptc/internal/catalog"
-	"github.com/peer-task-control/ptc/internal/workflow"
+	"github.com/tigeregit/peer-task-control/internal/catalog"
+	"github.com/tigeregit/peer-task-control/internal/workflow"
 )
 
 func TestCheckPlacementRefuseNoGPU(t *testing.T) {

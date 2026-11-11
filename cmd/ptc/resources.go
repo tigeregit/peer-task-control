@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/peer-task-control/ptc/internal/query"
-	"github.com/peer-task-control/ptc/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/query"
+	"github.com/tigeregit/peer-task-control/internal/resource"
 )
 
 func resourcesCmd() *cobra.Command {

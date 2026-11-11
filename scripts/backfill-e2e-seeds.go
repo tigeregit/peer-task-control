@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/resource"
-	"github.com/peer-task-control/ptc/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
 )
 
 func main() {

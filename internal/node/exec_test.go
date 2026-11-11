@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/peer-task-control/ptc/internal/dispatch"
-	"github.com/peer-task-control/ptc/internal/resource"
-	"github.com/peer-task-control/ptc/internal/taskboard"
-	"github.com/peer-task-control/ptc/internal/workflow"
+	"github.com/tigeregit/peer-task-control/internal/dispatch"
+	"github.com/tigeregit/peer-task-control/internal/resource"
+	"github.com/tigeregit/peer-task-control/internal/taskboard"
+	"github.com/tigeregit/peer-task-control/internal/workflow"
 )
 
 func TestDispatchSubmitFixture(t *testing.T) {

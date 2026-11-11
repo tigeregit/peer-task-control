@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	_ "embed"
-	"github.com/peer-task-control/ptc/internal/version"
+	"github.com/tigeregit/peer-task-control/internal/version"
 )
 
 //go:embed skill.txt
