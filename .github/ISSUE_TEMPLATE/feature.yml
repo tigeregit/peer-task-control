@@ -1,0 +1,25 @@
+name: 功能请求
+description: 建议一项新能力或行为变化
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: 请先查看 [docs/ROADMAP.md](https://github.com/tigeregit/peer-task-control/blob/main/docs/ROADMAP.md)，确认这不是已规划或已明确不做的事项。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的做法
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案
+      description: 可选。现有 CLI / skill / WebUI 是否已经能完成这件事？

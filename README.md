@@ -1,114 +1,115 @@
 # peer-task-control (ptc)
 
-去中心局域网任务分发：每台机器跑同一个 daemon，按内容哈希按需拉取测试数据，把 CUDA 程序派到指定机器。跨网段由白名单网关转发。
+[![Release](https://img.shields.io/github/v/release/tigeregit/peer-task-control?include_prereleases)](https://github.com/tigeregit/peer-task-control/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/tigeregit/peer-task-control)](https://github.com/tigeregit/peer-task-control/blob/main/go.mod)
+[![CI](https://github.com/tigeregit/peer-task-control/actions/workflows/ci.yml/badge.svg)](https://github.com/tigeregit/peer-task-control/actions/workflows/ci.yml)
 
-## 当前进度
+受信任局域网上的去中心化存储与任务分发。每台机器运行同一个 daemon：按内容哈希共享种子，把 CUDA 等工作流派到合适的节点。跨网段由无 GPU 的白名单网关转发。
 
-已完成：
+**API 以 CLI 为主**，并提供与二进制版本绑定的 skill 供 agent 使用；只读 WebUI 供人工查看网格。控制操作（提交、取消、改策略、清理）只在 CLI 里提供。
 
-- **P0 组网**：受信任 CIDR、mDNS 与端口探测、网关扫描与中转、服务目录、本机白 / 黑名单与功能开关。
-- **任务大纲与本机执行**：借鉴 Actions 的 job/step，首步必须是 Prepare、末步必须是 Package result；`ptc submit` 在本机按 Prepare → run → Package result 执行，并保存工作树快照。
-- **种子**：目录按整体计算 DirDigest（目录单元），结果包与 Prepare 种子都按摘要发布。
-- **网格共享**：运行记录与资源清单在全网可查；目录种子经 libp2p 以 tar 下载，可跨中转。
-- **只读看板**：中英双语 WebUI，任务 / 资源 / 节点分栏；资源列出 digest 与 bitswap 传输 CID；与 CLI 共用本机 `/api/v1` 和 `internal/query`，查询结果同源。节点页显示种子盘和工作树盘的真实容量及 ptc 占用。
-- **Windows 原生节点**：`docker/run-host-node.ps1` 让本机真实 GPU 以 `host` 节点加入 Docker 网格。
-- **P2 网格下发**：`ptc submit --target` 把作业派到指定（或 `auto`）exec 节点，经 `/ptc/exec/1.0.0` 传输；目标按目录最短路径拉取已发布种子并校验摘要。exec 节点有持久 FIFO 队列（默认并发 1）。`ptc queue` / `ptc cancel` 仅 CLI。
-- **存储分离**：种子（`cas/` + `packages/`）与每轮工作树分目录、分生命周期；清工作树不会删种子。路径可在配置、环境变量和 `--seeds-dir` / `--worktrees-dir` / `--runs-dir` 里分开设置。`ptc clean` 在本机回收结果包、记录、种子或残留工作树。
-- **纯做种任务**：单独的 `ptc/seed@v0` action 获取并公开指定资源集合，不创建 workspace、不执行命令、不打结果包。可下发到只有 files 服务的节点以增加容灾副本；[完整 YAML 与用法](docs/PREPARE.md#纯做种任务)，[可直接运行的本地示例](testdata/seed/workflow.yaml)。
-- **Bitswap 数据面**：资源摘要发现仍走受信任 PTC 网格，数据按 256KiB 分块通过标准 Boxo Bitswap 交换，支持中转、校验、持久缓存与副本故障切换。大资源自动使用多层 Merkle 索引，不再受 10,000 块、约 2.44GiB 的固定上限约束；仍受磁盘空间、传输超时和中继连接配额限制。小资源保留 v1 manifest；提供与接收大资源的节点均须升级以支持 v2 索引。
-- **副本拉取与 CID**：`ptc resources pull` 把校验后的副本写入本机并通告传输 CID；看板上的 CID 是传输 manifest，不是 UnixFS。
-- **安装与更新**：`ptc install --ssh HOST`、`ptc update [--ssh HOST|--mesh]` 从官方 Release 下载并校验二进制，替换失败回滚。本机 `ptc update` 会写入 `install.json` 并重启正在运行的 daemon（`--no-restart` 可跳过）。`ptc update --mesh` 向已记录安装且允许远端更新的同主版本节点滚动升级，目标用 bitswap 拉取二进制。SSH 支持 Linux amd64/arm64、Windows amd64，保持严格主机密钥校验；本机更新支持 Linux/macOS，Windows 可更新另一个未运行的 exe。SSH 安装暂不写入远端 `install.json`。[参数与平台限制](docs/CLI.md)。
+## 功能
 
-未完成：
+- **受信任组网**：只信任配置里的 CIDR，不预置邻居名单，也不向使用者要邻居 IP。同网段用 mDNS 和端口探测；跨网段由 `relay` 网关扫描并推送目录。
+- **内容寻址存储**：目录种子用 DirDigest 校验；网格内用 Bitswap 按块交换。看板上的 CID 是传输 manifest，不是 UnixFS 根。
+- **任务下发**：工作流借鉴 GitHub Actions 的 job/step（首步 Prepare、末步 Package result）。`ptc submit --target` 可派到指定或 `auto` 的 exec 节点；纯做种任务用 `uses: ptc/seed@v0`。
+- **只读看板**：中英双语 WebUI，任务 / 资源 / 节点分栏，与 CLI 共用本机 `/api/v1`。
+- **安装与更新**：`ptc install --ssh` 做首次安装；`ptc update` 更新本机或 SSH 目标，`--mesh` 可在同主版本节点上滚动升级。
 
-- **P1 剩余**：UnixFS / filestore、CID / dataset 输入解析、分块缓存 GC；目录 manifest pin 已有，完整 pin 管理尚未提供。
-- **P3**：官方完整产品界面（当前只有只读看板）。
-- **P4 剩余**：操作系统服务安装；SSH 安装仍不写入远端 `install.json`。本机 / mesh 更新后的 daemon 重启，以及同主版本网格滚动升级已经提供。
-- 远程 `ptc clean --node`（清理只作用于本机）。提交者断开 follow 不会取消作业，需显式 `ptc cancel`。
+网关没有 NVIDIA GPU，也**不得**作为 CUDA 执行目标。
 
-设计草案：[peer-task-control 设计草案](https://cursor.com/canvas/store-bfdc01c7-fd7a-4053-a2a7-a49302fbb19c/03f3f67c-b25a-4548-a67d-bef09a48a413)。离线摘要见 [docs/DESIGN.md](docs/DESIGN.md)。
+## 安装
 
-## 下载
+预发布和正式版都从 [Releases](https://github.com/tigeregit/peer-task-control/releases) 下载对应平台的二进制，并用附件里的 `SHA256SUMS` 校验。推送 `v…` 标签会由 GitHub Actions 自动编译并发布。
 
-预发布版从 [Releases](https://github.com/tigeregit/peer-task-control/releases) 下载对应平台的二进制，并用附件里的 `SHA256SUMS` 校验。推送 `v…` 标签会由 GitHub Actions 自动编译并发布。
+```text
+# 从源码构建（Go 版本以 go.mod 为准，当前为 1.26+）
+go build -o ptc ./cmd/ptc
+# Windows: go build -o ptc.exe ./cmd/ptc
 
-## 要求
+# 在已有节点上为另一台机器做首次安装
+ptc install --ssh user@host
+```
 
-- Go 1.26+（以 `go.mod` 为准）
-- 可选：Docker，用于跨网段验证
+在国内下载 Go 模块可以用：`go env -w GOPROXY=https://goproxy.cn,direct`。
 
-在国内下载依赖可以用：`go env -w GOPROXY=https://goproxy.cn,direct`。
+用 Docker 部署一个真实节点或实验室网格，见 [docker/README.md](docker/README.md)。跨网段模拟测试在 `docker/test/`，不要把它当成默认部署方式。
 
 ## 快速开始
 
 ```text
-go build -o ptc ./cmd/ptc
-# Windows: go build -o ptc.exe ./cmd/ptc
-
 # 准备配置：填写受信任 CIDR，不要写邻居 IP
 copy config.example.yaml config.yaml   # Windows
-# cp config.example.yaml config.yaml  # Linux
+# cp config.example.yaml config.yaml  # Linux / macOS
 
 ptc daemon --config config.yaml
 # 另开一个终端
-ptc peers
+ptc peers --json
 ptc policy show
 ptc skill print
 ```
 
-先起 daemon，再等目录出现。同网段靠 mDNS 和端口探测；跨网段由 `services.relay: true` 的网关扫描受信任网段并推送目录。不要向使用者要邻居地址。
+先起 daemon，再等目录出现。同网段靠 mDNS 和端口探测；跨网段由 `services.relay: true` 的网关扫描受信任网段并推送目录。Agent 应使用与当前二进制一致的 `ptc skill print`（需要细节时再 `ptc skill print <topic>`），不要沿用更新前的外部 `SKILL.md`。
 
-## 运行平台
+## 架构
 
-协议和 daemon **不绑定 Windows**。当前用 Go 编写，已在 Windows（iamsbb2）和 Linux 上编译、跑过单测。第一版产品优先服务 Windows 上的 CUDA 工作流，但 Linux 节点（包括用 Docker 模拟的网关和计算节点）可以同样入网。Windows 服务安装属于后续 P4。
-
-## 验证（按阶段）
-
-- **P0-A** 单元测试：策略、受信任 CIDR、目录合并、身份询问、网段扫描。
-- **P0-B** 同机多进程：`127.0.0.1/2/3` 上两台计算节点经一台网关互见。
-- **P0-C** Docker 跨网段：两个互不直通的网段，加上一台无 NVIDIA GPU、可访问两端的白名单网关。还可以用 `docker/run-host-node.ps1` 在 Windows 本机再起一个 `host` 节点（真实 GPU），验证原生 Windows daemon 也能入网。
-
-```text
-go test ./...
-
-# 在仓库根目录，预先编出 Linux 二进制后做跨网段模拟：
-# Windows（已装 Go 和 Docker）:
-powershell -File docker/p0-test.ps1
-# Linux:
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o docker/ptc-linux ./cmd/ptc
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o docker/tcpprobe-linux ./docker/cmd/tcpprobe
-docker compose -f docker/docker-compose.yml up -d --build
-sh docker/p0-test.sh
-python3 docker/p0-assert.py
-docker compose -f docker/docker-compose.yml down -v
+```mermaid
+flowchart LR
+  subgraph segA [受信任网段 A]
+    F[files 节点]
+    C[CUDA exec]
+  end
+  subgraph segB [受信任网段 B]
+    H[Windows host GPU]
+  end
+  G["网关 relay + files\n无 GPU，不可作 CUDA 目标"]
+  F --- G
+  C --- G
+  H --- G
+  CLI[ptc CLI] --> C
+  UI[只读 WebUI] --> G
 ```
 
-## 命令
+- 种子身份是 **DirDigest**（内容指纹）；看板上的 **CID** 只用于 Bitswap 寻址，二者不可互换。
+- 查询类命令与 WebUI 同源（`internal/query` + 本机 `/api/v1`）。
 
-全局做种限额默认 **40GB**，自动清理目标 **20GB**，可配置 `storage.size_limit/delete_size`；输出与其他种子共用限额，只在另一节点持久承诺保留完整副本后清理，不能删除唯一副本。`storage.workspace_limit` 限制节点全部工作区合计，默认不限制；工作区与做种数据隔离，任务成功、失败、取消后立即回收。详见 [全局存储规则](docs/CLI.md#全局存储规则)。
+## 常用命令
 
-完整参数、默认值、输出格式和本机 API 见 [docs/CLI.md](docs/CLI.md)。P0 测试报告见 [docs/TEST-REPORT-P0.md](docs/TEST-REPORT-P0.md)。
-
+完整参数、默认值、输出格式和本机 API 见 [docs/CLI.md](docs/CLI.md)。
 
 | 命令 | 作用 |
 | --- | --- |
 | `ptc daemon` | 监听固定端口，加入组网 |
 | `ptc peers` | 列出已知节点及执行 / 文件 / 中转服务 |
 | `ptc policy` | 查看或设置本机白名单、黑名单、功能开关以及是否接受网格升级 |
-| `ptc skill print` | 输出与当前版本绑定的 skill |
+| `ptc skill print [topic]` | 输出与当前版本绑定的 skill（可按主题） |
+| `ptc skill list` | 列出 skill 主题 |
 | `ptc version` | 打印版本 |
 | `ptc install --ssh HOST` | 经 SSH 安装经过 SHA256 校验的官方 Release 二进制 |
-| `ptc update [--ssh HOST|--mesh]` | 更新本机或一个 SSH 目标，或向已记录安装的节点滚动升级；本机成功后默认重启 daemon |
+| `ptc update [--ssh HOST\|--mesh]` | 更新本机或一个 SSH 目标，或向已记录安装的节点滚动升级 |
 | `ptc submit` | 本机执行，或 `--target` 下发到网格 exec 节点（默认 follow） |
-| `ptc webui` | 本机只读任务看板（中英双语；任务 / 资源 / 节点分栏；查询与下载。不提供改策略或提交作业） |
-| `ptc queue` | 列出各节点排队中 / 正在运行的作业 |
-| `ptc cancel` | 取消排队中或正在运行的作业（仅 CLI） |
-| `ptc tasks` | 列出或查看网格内公开的运行记录（与看板共用接口和筛选语义） |
+| `ptc webui` | 本机只读任务看板 |
+| `ptc queue` / `ptc cancel` | 查看队列或取消作业（仅 CLI） |
+| `ptc tasks` | 列出或查看网格内公开的运行记录 |
+| `ptc resources` | 列出、查看、下载或 `pull` 全网种子 |
 | `ptc clean` | 本机清理结果包、运行记录、种子或工作树 |
-| `ptc resources` | 列出全网种子，查看 digest / 传输 CID / 所在设备 / 中转次数，下载，或 `pull` 把校验后的副本写入本机仓库（与看板共用接口；`--list-files` 可列出超大目录树的路径） |
+| `ptc scan` | 触发本机或指定网关的发现扫描 |
 
-查询类能力与 WebUI 同源（同一套本机 `/api/v1` 和 `internal/query`）。策略变更、`submit`、`cancel`、`clean`、启动 daemon 等控制操作只在 CLI 里提供，看板保持只读。可选的 Ubuntu CUDA 节点见 `docker/docker-compose.cuda.yml`（官方 `nvidia/cuda:12.9.2-devel-ubuntu22.04`，不要写进默认 live compose）。
+全局做种限额默认 **40GB**，自动清理目标 **20GB**，可配置 `storage.size_limit/delete_size`。详见 [全局存储规则](docs/CLI.md#全局存储规则)。
 
-## 仓库约定
+## 文档
 
-贡献与排障请看 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)（含 PR、commit、issue 规则）。Agent 应使用与二进制同版本的 `ptc skill print` 输出。
+- [命令行与本机 API](docs/CLI.md)
+- [Prepare 约定](docs/PREPARE.md) / [Package result 约定](docs/PACKAGE-RESULT.md)
+- [Docker 部署与测试](docker/README.md)
+- [系统设计摘要](docs/DESIGN.md)
+- [状态与路线图](docs/ROADMAP.md)
+- [贡献与排障](docs/CONTRIBUTING.md)
+
+工作流和种子模板在 [docs/templates/](docs/templates/)。可直接跑的示例在 `testdata/`。
+
+协议和 daemon **不绑定 Windows**。当前用 Go 编写，已在 Windows 和 Linux 上编译并跑过单测。第一版优先服务 Windows 上的 CUDA 工作流，Linux 节点同样可以入网。操作系统服务安装属于后续工作，见 [路线图](docs/ROADMAP.md)。
+
+## 贡献
+
+贡献与排障请看 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)。提交前请运行 `go test ./...`。Agent 必须使用与二进制同版本的 `ptc skill print` 输出。

@@ -1,0 +1,55 @@
+name: 缺陷报告
+description: 报告一个可复现的错误
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先阅读 [docs/CONTRIBUTING.md](https://github.com/tigeregit/peer-task-control/blob/main/docs/CONTRIBUTING.md)。
+        **不要**粘贴 PSK、SSH 私钥、identity.key 或其他凭证。
+  - type: textarea
+    id: version
+    attributes:
+      label: ptc version
+      description: 请粘贴 `ptc version` 的完整输出。
+      placeholder: 0.3.0-dev
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 操作系统
+      placeholder: Windows 11 / Ubuntu 22.04
+    validations:
+      required: true
+  - type: dropdown
+    id: segment
+    attributes:
+      label: 是否跨网段
+      options:
+        - 同网段
+        - 跨网段（经网关）
+        - 不清楚
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 相关配置可以打码后附上，但不要包含密钥。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 可附日志摘要。组网问题请附打码后的 `ptc peers` 输出（可保留节点名和角色）。
+    validations:
+      required: true
